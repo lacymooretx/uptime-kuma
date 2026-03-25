@@ -327,7 +327,7 @@ class GlobalpingMonitorType extends MonitorType {
         }
 
         if (monitor.dns_last_result !== dnsMessage && dnsMessage !== undefined) {
-            await redbean.exec("UPDATE `monitor` SET dns_last_result = ? WHERE id = ? ", [dnsMessage, monitor.id]);
+            await redbean.exec("UPDATE \"monitor\" SET dns_last_result = ? WHERE id = ? ", [dnsMessage, monitor.id]);
         }
 
         heartbeat.ping = result.timings.total || 0;

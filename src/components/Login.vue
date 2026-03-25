@@ -66,6 +66,21 @@
                     {{ $t("Login") }}
                 </button>
 
+                <div v-if="oidcEnabled" class="mt-3">
+                    <div class="separator mb-3">
+                        <span>or</span>
+                    </div>
+                    <a href="/auth/oidc/login" class="w-100 btn btn-outline-primary d-flex align-items-center justify-content-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 23 23">
+                            <path fill="#f35325" d="M1 1h10v10H1z" />
+                            <path fill="#81bc06" d="M12 1h10v10H12z" />
+                            <path fill="#05a6f0" d="M1 12h10v10H1z" />
+                            <path fill="#ffba08" d="M12 12h10v10H12z" />
+                        </svg>
+                        Sign in with Microsoft
+                    </a>
+                </div>
+
                 <div v-if="res && !res.ok" class="alert alert-danger mt-3" role="alert">
                     {{ $t(res.msg) }}
                 </div>
@@ -84,6 +99,7 @@ export default {
             token: "",
             res: null,
             tokenRequired: false,
+            oidcEnabled: false,
         };
     },
 
@@ -97,8 +113,15 @@ export default {
         },
     },
 
-    mounted() {
+    async mounted() {
         document.title += " - Login";
+        try {
+            const resp = await fetch("/auth/oidc/status");
+            const data = await resp.json();
+            this.oidcEnabled = data.oidcEnabled || false;
+        } catch (e) {
+            this.oidcEnabled = false;
+        }
     },
 
     unmounted() {
@@ -151,5 +174,24 @@ export default {
     padding: 15px;
     margin: auto;
     text-align: center;
+}
+
+.separator {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    color: #6c757d;
+    font-size: 0.85em;
+
+    &::before,
+    &::after {
+        content: "";
+        flex: 1;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    span {
+        padding: 0 0.75em;
+    }
 }
 </style>

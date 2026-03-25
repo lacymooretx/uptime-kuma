@@ -291,6 +291,7 @@ export default {
             let incidentManagement = {
                 alerta: "Alerta",
                 AlertNow: "AlertNow",
+                ConnectWiseManage: "ConnectWise Manage",
                 GoAlert: "GoAlert",
                 GrafanaOncall: "Grafana Oncall",
                 HeiiOnCall: "Heii On-Call",

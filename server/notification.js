@@ -90,6 +90,7 @@ const { commandExists } = require("./util-server");
 const Whatsapp360messenger = require("./notification-providers/360messenger");
 const Webpush = require("./notification-providers/Webpush");
 const HaloPSA = require("./notification-providers/HaloPSA");
+const ConnectWiseManage = require("./notification-providers/connectwise-manage");
 const Max = require("./notification-providers/max");
 
 class Notification {
@@ -196,6 +197,7 @@ class Notification {
             new Whatsapp360messenger(),
             new Webpush(),
             new HaloPSA(),
+            new ConnectWiseManage(),
             new Max(),
         ];
         for (let item of list) {

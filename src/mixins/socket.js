@@ -135,6 +135,20 @@ export default {
             });
 
             socket.on("loginRequired", () => {
+                // Check for OIDC token in URL query parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                const oidcToken = urlParams.get("token");
+                if (oidcToken) {
+                    // Clean up URL
+                    const cleanUrl = window.location.pathname;
+                    window.history.replaceState({}, document.title, cleanUrl);
+                    // Store and use the token
+                    this.storage().token = oidcToken;
+                    this.socket.token = oidcToken;
+                    this.loginByToken(oidcToken);
+                    return;
+                }
+
                 let token = this.storage().token;
                 if (token && token !== "autoLogin") {
                     this.loginByToken(token);

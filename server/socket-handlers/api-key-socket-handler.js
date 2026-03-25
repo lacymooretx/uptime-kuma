@@ -1,12 +1,7 @@
 const { checkLogin } = require("../util-server");
 const { log } = require("../../src/util");
-const { R } = require("redbean-node");
-const { nanoid } = require("nanoid");
-const passwordHash = require("../password-hash");
-const apicache = require("../modules/apicache");
-const APIKey = require("../model/api_key");
-const { Settings } = require("../settings");
 const { sendAPIKeyList } = require("../client");
+const ApiKeyService = require("../services/api-key-service");
 
 /**
  * Handlers for API keys
@@ -19,22 +14,8 @@ module.exports.apiKeySocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            let clearKey = nanoid(40);
-            let hashedKey = await passwordHash.generate(clearKey);
-            key["key"] = hashedKey;
-            let bean = await APIKey.save(key, socket.userID);
-
-            log.debug("apikeys", "Added API Key");
-            log.debug("apikeys", key);
-
-            // Append key ID and prefix to start of key separated by _, used to get
-            // correct hash when validating key.
-            let formattedKey = "uk" + bean.id + "_" + clearKey;
+            let { bean, formattedKey } = await ApiKeyService.add(key, socket.userID);
             await sendAPIKeyList(socket);
-
-            // Enable API auth if the user creates a key, otherwise only basic
-            // auth will be used for API.
-            await Settings.set("apiKeysEnabled", true);
 
             callback({
                 ok: true,
@@ -71,11 +52,7 @@ module.exports.apiKeySocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            log.debug("apikeys", `Deleted API Key: ${keyID} User ID: ${socket.userID}`);
-
-            await R.exec("DELETE FROM api_key WHERE id = ? AND user_id = ? ", [keyID, socket.userID]);
-
-            apicache.clear();
+            await ApiKeyService.delete(keyID, socket.userID);
 
             callback({
                 ok: true,
@@ -96,11 +73,7 @@ module.exports.apiKeySocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            log.debug("apikeys", `Disabled Key: ${keyID} User ID: ${socket.userID}`);
-
-            await R.exec("UPDATE api_key SET active = 0 WHERE id = ? ", [keyID]);
-
-            apicache.clear();
+            await ApiKeyService.disable(keyID, socket.userID);
 
             callback({
                 ok: true,
@@ -121,11 +94,7 @@ module.exports.apiKeySocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            log.debug("apikeys", `Enabled Key: ${keyID} User ID: ${socket.userID}`);
-
-            await R.exec("UPDATE api_key SET active = 1 WHERE id = ? ", [keyID]);
-
-            apicache.clear();
+            await ApiKeyService.enable(keyID, socket.userID);
 
             callback({
                 ok: true,

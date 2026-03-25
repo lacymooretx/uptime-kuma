@@ -22,7 +22,7 @@ exports.login = async function (username, password) {
     if (user && passwordHash.verify(password, user.password)) {
         // Upgrade the hash to bcrypt
         if (passwordHash.needRehash(user.password)) {
-            await R.exec("UPDATE `user` SET password = ? WHERE id = ? ", [
+            await R.exec("UPDATE \"user\" SET password = ? WHERE id = ? ", [
                 await passwordHash.generate(password),
                 user.id,
             ]);
@@ -60,6 +60,38 @@ async function verifyAPIKey(key) {
     }
 
     return hash && passwordHash.verify(clear, hash.key);
+}
+
+/**
+ * Validate a provided API key and return the user_id
+ * @param {string} key API key to verify
+ * @returns {Promise<number|null>} user_id if valid, null otherwise
+ */
+async function verifyAPIKeyAndGetUserID(key) {
+    if (typeof key !== "string") {
+        return null;
+    }
+
+    let index = key.substring(2, key.indexOf("_"));
+    let clear = key.substring(key.indexOf("_") + 1, key.length);
+
+    let hash = await R.findOne("api_key", " id=? ", [index]);
+
+    if (hash === null) {
+        return null;
+    }
+
+    let current = dayjs();
+    let expiry = dayjs(hash.expires);
+    if (expiry.diff(current) < 0 || !hash.active) {
+        return null;
+    }
+
+    if (hash && passwordHash.verify(clear, hash.key)) {
+        return hash.user_id;
+    }
+
+    return null;
 }
 
 /**
@@ -172,5 +204,80 @@ exports.apiAuth = async function (req, res, next) {
         middleware(req, res, next);
     } else {
         next();
+    }
+};
+
+/**
+ * REST API auth middleware.
+ * Parses Authorization: Basic header manually.
+ * Supports API key (password starts with "uk") or username/password.
+ * Sets req.userID on success. Returns 401 JSON (not HTML challenge) on failure.
+ * @param {express.Request} req Express request object
+ * @param {express.Response} res Express response object
+ * @param {express.NextFunction} next Next handler in chain
+ * @returns {Promise<void>}
+ */
+exports.restApiAuth = async function (req, res, next) {
+    // If auth is disabled, find the first user and use their ID
+    if (await Settings.get("disableAuth")) {
+        let user = await R.findOne("user", " active = 1 ");
+        if (user) {
+            req.userID = user.id;
+        }
+        return next();
+    }
+
+    const authHeader = req.headers["authorization"];
+    if (!authHeader || !authHeader.startsWith("Basic ")) {
+        return res.status(401).json({ ok: false, msg: "Missing or invalid Authorization header. Use Basic auth." });
+    }
+
+    let decoded;
+    try {
+        decoded = Buffer.from(authHeader.substring(6), "base64").toString("utf-8");
+    } catch (e) {
+        return res.status(401).json({ ok: false, msg: "Invalid Authorization header encoding." });
+    }
+
+    const colonIndex = decoded.indexOf(":");
+    if (colonIndex === -1) {
+        return res.status(401).json({ ok: false, msg: "Invalid Authorization header format." });
+    }
+
+    const username = decoded.substring(0, colonIndex);
+    const password = decoded.substring(colonIndex + 1);
+
+    // Check if it's an API key (password starts with "uk")
+    if (password.startsWith("uk")) {
+        // Rate limit
+        if (!(await apiRateLimiter.pass(null, 0))) {
+            return res.status(429).json({ ok: false, msg: "Too many requests. Please try again later." });
+        }
+
+        const userID = await verifyAPIKeyAndGetUserID(password);
+        apiRateLimiter.removeTokens(1);
+
+        if (userID) {
+            req.userID = userID;
+            return next();
+        } else {
+            log.warn("rest-api-auth", "Failed API key auth attempt");
+            return res.status(401).json({ ok: false, msg: "Invalid API key." });
+        }
+    } else {
+        // Username/password auth
+        if (!(await loginRateLimiter.pass(null, 0))) {
+            return res.status(429).json({ ok: false, msg: "Too many requests. Please try again later." });
+        }
+
+        const user = await exports.login(username, password);
+        if (user) {
+            req.userID = user.id;
+            return next();
+        } else {
+            loginRateLimiter.removeTokens(1);
+            log.warn("rest-api-auth", "Failed basic auth attempt");
+            return res.status(401).json({ ok: false, msg: "Invalid username or password." });
+        }
     }
 };

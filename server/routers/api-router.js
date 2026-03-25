@@ -378,8 +378,8 @@ router.get("/api/badge/:id/avg-response/:duration?", cache("5 minutes"), async (
         const publicAvgPing = parseInt(
             await R.getCell(
                 `
-            SELECT AVG(ping) FROM monitor_group, \`group\`, heartbeat
-            WHERE monitor_group.group_id = \`group\`.id
+            SELECT AVG(ping) FROM monitor_group, "group", heartbeat
+            WHERE monitor_group.group_id = "group".id
             AND heartbeat.time > ${sqlHourOffset}
             AND heartbeat.ping IS NOT NULL
             AND public = 1
@@ -626,8 +626,8 @@ function determineStatus(status, previousHeartbeat, maxretries, isUpsideDown, be
 async function isMonitorPublic(monitorID) {
     let publicMonitor = await R.getRow(
         `
-            SELECT monitor_group.monitor_id FROM monitor_group, \`group\`
-            WHERE monitor_group.group_id = \`group\`.id
+            SELECT monitor_group.monitor_id FROM monitor_group, "group"
+            WHERE monitor_group.group_id = "group".id
             AND monitor_group.monitor_id = ?
             AND public = 1
         `,

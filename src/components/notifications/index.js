@@ -86,6 +86,7 @@ import SMSPlanet from "./SMSPlanet.vue";
 import SMSIR from "./SMSIR.vue";
 import Webpush from "./Webpush.vue";
 import HaloPSA from "./HaloPSA.vue";
+import ConnectWiseManage from "./ConnectWiseManage.vue";
 import Resend from "./Resend.vue";
 import Max from "./Max.vue";
 
@@ -183,6 +184,7 @@ const NotificationFormList = {
     SMSPlanet: SMSPlanet,
     Webpush: Webpush,
     HaloPSA: HaloPSA,
+    ConnectWiseManage: ConnectWiseManage,
     max: Max,
 };
 

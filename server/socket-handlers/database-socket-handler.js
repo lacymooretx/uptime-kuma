@@ -1,5 +1,5 @@
 const { checkLogin } = require("../util-server");
-const Database = require("../database");
+const DatabaseService = require("../services/database-service");
 
 /**
  * Handlers for database
@@ -7,13 +7,12 @@ const Database = require("../database");
  * @returns {void}
  */
 module.exports.databaseSocketHandler = (socket) => {
-    // Post or edit incident
     socket.on("getDatabaseSize", async (callback) => {
         try {
             checkLogin(socket);
             callback({
                 ok: true,
-                size: await Database.getSize(),
+                size: await DatabaseService.getSize(),
             });
         } catch (error) {
             callback({
@@ -26,7 +25,7 @@ module.exports.databaseSocketHandler = (socket) => {
     socket.on("shrinkDatabase", async (callback) => {
         try {
             checkLogin(socket);
-            await Database.shrink();
+            await DatabaseService.shrink();
             callback({
                 ok: true,
             });

@@ -1,7 +1,7 @@
 const { sendDockerHostList } = require("../client");
 const { checkLogin } = require("../util-server");
-const { DockerHost } = require("../docker");
 const { log } = require("../../src/util");
+const DockerHostService = require("../services/docker-host-service");
 
 /**
  * Handlers for docker hosts
@@ -13,7 +13,7 @@ module.exports.dockerSocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            let dockerHostBean = await DockerHost.save(dockerHost, dockerHostID, socket.userID);
+            let dockerHostBean = await DockerHostService.save(dockerHost, dockerHostID, socket.userID);
             await sendDockerHostList(socket);
 
             callback({
@@ -34,7 +34,7 @@ module.exports.dockerSocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            await DockerHost.delete(dockerHostID, socket.userID);
+            await DockerHostService.delete(dockerHostID, socket.userID);
             await sendDockerHostList(socket);
 
             callback({
@@ -54,14 +54,7 @@ module.exports.dockerSocketHandler = (socket) => {
         try {
             checkLogin(socket);
 
-            let amount = await DockerHost.testDockerHost(dockerHost);
-            let msg;
-
-            if (amount >= 1) {
-                msg = "Connected Successfully. Amount of containers: " + amount;
-            } else {
-                msg = "Connected Successfully, but there are no containers?";
-            }
+            let msg = await DockerHostService.test(dockerHost);
 
             callback({
                 ok: true,
