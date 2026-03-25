@@ -18,8 +18,9 @@
                 to="/dashboard"
                 class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-dark text-decoration-none"
             >
-                <object class="bi me-2 ms-4" width="40" height="40" data="/icon.svg" />
-                <span class="fs-4 title">{{ $t("Uptime Kuma") }}</span>
+                <img v-if="$root.info.customLogo" class="bi me-2 ms-4" style="height: 40px; max-width: 200px; object-fit: contain;" :src="$root.info.customLogo" alt="Logo" />
+                <object v-else class="bi me-2 ms-4" width="40" height="40" data="/icon.svg" />
+                <span class="fs-4 title">{{ $root.info.customTitle || $t("Uptime Kuma") }}</span>
             </router-link>
 
             <a
@@ -120,8 +121,9 @@
         <!-- Mobile header -->
         <header v-else class="d-flex flex-wrap justify-content-center pt-2 pb-2 mb-3">
             <router-link to="/dashboard" class="d-flex align-items-center text-dark text-decoration-none">
-                <object class="bi" width="40" height="40" data="/icon.svg" />
-                <span class="fs-4 title ms-2">Uptime Kuma</span>
+                <img v-if="$root.info.customLogo" class="bi" style="height: 40px; max-width: 200px; object-fit: contain;" :src="$root.info.customLogo" alt="Logo" />
+                <object v-else class="bi" width="40" height="40" data="/icon.svg" />
+                <span class="fs-4 title ms-2">{{ $root.info.customTitle || "Uptime Kuma" }}</span>
             </router-link>
         </header>
 
@@ -202,7 +204,13 @@ export default {
         },
     },
 
-    watch: {},
+    watch: {
+        "$root.info.customTitle"(val) {
+            if (val) {
+                document.title = val;
+            }
+        },
+    },
 
     mounted() {
         this.toastContainer = document.querySelector(".bottom-right.toast-container");

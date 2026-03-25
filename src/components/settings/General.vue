@@ -1,6 +1,59 @@
 <template>
     <div>
         <form class="my-4" autocomplete="off" @submit.prevent="saveGeneral">
+            <!-- Branding -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">Branding</label>
+
+                <div class="mb-3">
+                    <label for="customTitle" class="form-label">Site Title</label>
+                    <input
+                        id="customTitle"
+                        v-model="settings.customTitle"
+                        class="form-control"
+                        type="text"
+                        placeholder="Uptime Kuma"
+                    />
+                </div>
+
+                <div class="mb-3">
+                    <label for="customLogo" class="form-label">Logo</label>
+                    <div class="d-flex align-items-center gap-3">
+                        <img
+                            v-if="settings.customLogo"
+                            :src="settings.customLogo"
+                            alt="Logo preview"
+                            style="max-height: 40px; max-width: 200px; object-fit: contain;"
+                            :style="{ filter: settings.customLogo.endsWith('.png') ? 'none' : 'none' }"
+                        />
+                        <img
+                            v-else
+                            src="/icon.svg"
+                            alt="Default logo"
+                            style="height: 40px; width: 40px;"
+                        />
+                        <input
+                            id="customLogo"
+                            class="form-control"
+                            type="file"
+                            accept="image/*"
+                            @change="onLogoUpload"
+                        />
+                        <button
+                            v-if="settings.customLogo"
+                            type="button"
+                            class="btn btn-outline-danger btn-sm"
+                            @click="settings.customLogo = ''"
+                        >
+                            Reset
+                        </button>
+                    </div>
+                    <div class="form-text">Upload a logo image. Recommended: PNG with transparent background, max height 40px.</div>
+                </div>
+            </div>
+
+            <hr />
+
             <!-- Client side Timezone -->
             <div class="mb-4">
                 <label for="timezone" class="form-label">
@@ -265,6 +318,17 @@ export default {
          * Get the base URL of the application
          * @returns {void}
          */
+        onLogoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.settings.customLogo = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        },
         autoGetPrimaryBaseURL() {
             this.settings.primaryBaseURL = location.protocol + "//" + location.host;
         },
