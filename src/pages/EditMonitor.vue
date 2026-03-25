@@ -90,6 +90,7 @@
                                         <option v-if="!$root.info.isContainer" value="tailscale-ping">
                                             Tailscale Ping
                                         </option>
+                                        <option value="unifi">UniFi Device</option>
                                         <option value="websocket-upgrade">Websocket Upgrade</option>
                                     </optgroup>
 
@@ -700,6 +701,40 @@
                                     step="1"
                                 />
                             </div>
+
+                            <!-- UniFi Monitor Type -->
+                            <template v-if="monitor.type === 'unifi'">
+                                <div class="my-3">
+                                    <label for="unifi-api-key" class="form-label">UniFi API Key</label>
+                                    <HiddenInput
+                                        id="unifi-api-key"
+                                        v-model="monitor.basic_auth_pass"
+                                        autocomplete="false"
+                                        :required="true"
+                                        placeholder="Your UniFi Site Manager API Key"
+                                    />
+                                    <div class="form-text">
+                                        Create an API key at
+                                        <a href="https://unifi.ui.com" target="_blank" rel="noopener noreferrer">unifi.ui.com</a>
+                                        under API settings.
+                                    </div>
+                                </div>
+
+                                <div class="my-3">
+                                    <label for="unifi-mac" class="form-label">Device MAC Address</label>
+                                    <input
+                                        id="unifi-mac"
+                                        v-model="monitor.hostname"
+                                        type="text"
+                                        class="form-control"
+                                        required
+                                        placeholder="aa:bb:cc:dd:ee:ff"
+                                    />
+                                    <div class="form-text">
+                                        The MAC address of the UniFi device to monitor (e.g. gateway, switch, AP).
+                                    </div>
+                                </div>
+                            </template>
 
                             <!-- SNMP Monitor Type -->
                             <div v-if="monitor.type === 'snmp'" class="my-3">
@@ -2058,6 +2093,98 @@
                                 {{ $t("Setup Notification") }}
                             </button>
 
+                            <!-- ConnectWise Manage Per-Monitor Settings -->
+                            <div v-if="hasConnectWiseNotification" class="mt-4 mb-3">
+                                <div class="card">
+                                    <div
+                                        class="card-header d-flex align-items-center"
+                                        style="cursor: pointer"
+                                        @click="cwSettingsExpanded = !cwSettingsExpanded"
+                                    >
+                                        <i
+                                            class="me-2"
+                                            :class="cwSettingsExpanded ? 'bi bi-chevron-down' : 'bi bi-chevron-right'"
+                                        ></i>
+                                        <strong>ConnectWise Manage Settings</strong>
+                                    </div>
+                                    <div v-if="cwSettingsExpanded" class="card-body">
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <label class="form-label mb-0">Service Board</label>
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-sm btn-outline-secondary"
+                                                    :disabled="cwLoading"
+                                                    @click="cwFetchBoards"
+                                                >
+                                                    {{ cwLoading ? "Loading..." : "Fetch Boards" }}
+                                                </button>
+                                            </div>
+                                            <select
+                                                v-model="cwConfig.boardId"
+                                                class="form-select"
+                                                @change="cwOnBoardChange"
+                                            >
+                                                <option value="">Select a board</option>
+                                                <option v-for="b in cwBoards" :key="b.id" :value="String(b.id)">{{ b.name }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Status (when DOWN)</label>
+                                            <select v-model="cwConfig.downStatusId" class="form-select">
+                                                <option value="">Select status for DOWN</option>
+                                                <option v-for="s in cwStatuses" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Status (when back UP)</label>
+                                            <select v-model="cwConfig.upStatusId" class="form-select">
+                                                <option value="">Select status for UP</option>
+                                                <option v-for="s in cwStatuses" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Type <span class="text-muted">(optional)</span></label>
+                                            <select v-model="cwConfig.typeId" class="form-select">
+                                                <option value="">None</option>
+                                                <option v-for="t in cwTypes" :key="t.id" :value="String(t.id)">{{ t.name }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Sub-Type <span class="text-muted">(optional)</span></label>
+                                            <select v-model="cwConfig.subTypeId" class="form-select">
+                                                <option value="">None</option>
+                                                <option v-for="t in cwSubTypes" :key="t.id" :value="String(t.id)">{{ t.name }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Item <span class="text-muted">(optional)</span></label>
+                                            <select v-model="cwConfig.itemId" class="form-select">
+                                                <option value="">None</option>
+                                                <option v-for="t in cwItems" :key="t.id" :value="String(t.id)">{{ t.name }}</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">Assign To <span class="text-muted">(optional)</span></label>
+                                            <select v-model="cwConfig.memberId" class="form-select">
+                                                <option value="">Unassigned</option>
+                                                <option v-for="m in cwMembers" :key="m.identifier" :value="m.identifier">
+                                                    {{ m.firstName }} {{ m.lastName }} ({{ m.identifier }})
+                                                </option>
+                                            </select>
+                                        </div>
+
+                                        <div v-if="cwError" class="alert alert-danger mt-2">{{ cwError }}</div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- Proxies -->
                             <div
                                 v-if="
@@ -2982,6 +3109,17 @@ export default {
             },
             draftGroupName: null,
             remoteBrowsersEnabled: false,
+            // ConnectWise Manage per-monitor config
+            cwSettingsExpanded: false,
+            cwConfig: { boardId: "", downStatusId: "", upStatusId: "", typeId: "", subTypeId: "", itemId: "", memberId: "" },
+            cwBoards: [],
+            cwStatuses: [],
+            cwTypes: [],
+            cwSubTypes: [],
+            cwItems: [],
+            cwMembers: [],
+            cwLoading: false,
+            cwError: null,
             lowIntervalConfirmation: {
                 confirmed: false,
                 editedValue: false,
@@ -2990,6 +3128,15 @@ export default {
     },
 
     computed: {
+        hasConnectWiseNotification() {
+            if (!this.monitor.notificationIDList || !this.$root.notificationList) {
+                return false;
+            }
+            return this.$root.notificationList.some(
+                (n) => n.type === "ConnectWiseManage" && this.monitor.notificationIDList[n.id]
+            );
+        },
+
         timeoutStep() {
             return this.monitor.type === "ping" ? 1 : 0.1;
         },
@@ -3567,6 +3714,89 @@ message HealthCheckResponse {
     },
     methods: {
         /**
+         * Get the ConnectWise notification config for proxy calls
+         * @returns {object|null} CW connection payload or null
+         */
+        getCwConnectionPayload() {
+            const cwNotif = this.$root.notificationList.find(
+                (n) => n.type === "ConnectWiseManage" && this.monitor.notificationIDList[n.id]
+            );
+            if (!cwNotif) {
+                return null;
+            }
+            return {
+                cwApiUrl: cwNotif.cwApiUrl,
+                cwCompanyId: cwNotif.cwCompanyId,
+                cwPublicKey: cwNotif.cwPublicKey,
+                cwPrivateKey: cwNotif.cwPrivateKey,
+                cwClientId: cwNotif.cwClientId,
+            };
+        },
+
+        async cwProxy(resource, boardId = null) {
+            const conn = this.getCwConnectionPayload();
+            if (!conn) {
+                throw new Error("No ConnectWise notification configured");
+            }
+            const payload = { ...conn, resource };
+            if (boardId) {
+                payload.boardId = boardId;
+            }
+            const resp = await fetch("/api/cw/proxy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            if (!data.ok) {
+                throw new Error(data.msg || "Failed to fetch from ConnectWise");
+            }
+            return data.data;
+        },
+
+        async cwFetchBoards() {
+            this.cwError = null;
+            this.cwLoading = true;
+            try {
+                this.cwBoards = await this.cwProxy("boards");
+                this.cwMembers = await this.cwProxy("members");
+            } catch (e) {
+                this.cwError = e.message;
+            }
+            this.cwLoading = false;
+        },
+
+        async cwOnBoardChange() {
+            const boardId = this.cwConfig.boardId;
+            this.cwConfig.downStatusId = "";
+            this.cwConfig.upStatusId = "";
+            this.cwConfig.typeId = "";
+            this.cwConfig.subTypeId = "";
+            this.cwConfig.itemId = "";
+            this.cwStatuses = [];
+            this.cwTypes = [];
+            this.cwSubTypes = [];
+            this.cwItems = [];
+            if (boardId) {
+                this.cwError = null;
+                try {
+                    const [statuses, types, subtypes, items] = await Promise.all([
+                        this.cwProxy("statuses", boardId),
+                        this.cwProxy("types", boardId).catch(() => []),
+                        this.cwProxy("subtypes", boardId).catch(() => []),
+                        this.cwProxy("items", boardId).catch(() => []),
+                    ]);
+                    this.cwStatuses = statuses;
+                    this.cwTypes = types;
+                    this.cwSubTypes = subtypes;
+                    this.cwItems = items;
+                } catch (e) {
+                    this.cwError = e.message;
+                }
+            }
+        },
+
+        /**
          * Initialize the edit monitor form
          * @returns {void}
          */
@@ -3604,6 +3834,20 @@ message HealthCheckResponse {
                         }
 
                         this.monitor = res.monitor;
+
+                        // Load ConnectWise config from monitor
+                        if (res.monitor.cwConfig) {
+                            this.cwConfig = {
+                                boardId: "",
+                                downStatusId: "",
+                                upStatusId: "",
+                                typeId: "",
+                                subTypeId: "",
+                                itemId: "",
+                                memberId: "",
+                                ...res.monitor.cwConfig,
+                            };
+                        }
 
                         if (this.isClone) {
                             /*
@@ -3827,6 +4071,11 @@ message HealthCheckResponse {
          */
         async submit() {
             this.processing = true;
+
+            // Sync ConnectWise config into monitor before submit
+            if (this.hasConnectWiseNotification) {
+                this.monitor.cwConfig = { ...this.cwConfig };
+            }
 
             // Check user has confirmed use of low interval value. Only
             // do this if the interval value has changed since last save.
