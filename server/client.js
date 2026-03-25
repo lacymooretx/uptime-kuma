@@ -23,8 +23,8 @@ async function sendNotificationList(socket) {
 
     for (let bean of list) {
         let notificationObject = bean.export();
-        notificationObject.isDefault = notificationObject.isDefault === 1;
-        notificationObject.active = notificationObject.active === 1;
+        notificationObject.isDefault = !!notificationObject.isDefault;
+        notificationObject.active = !!notificationObject.active;
         result.push(notificationObject);
     }
 
@@ -147,6 +147,8 @@ async function sendInfo(socket, hideVersion = false) {
         primaryBaseURL: await setting("primaryBaseURL"),
         serverTimezone: await server.getTimezone(),
         serverTimezoneOffset: server.getTimezoneOffset(),
+        customTitle: await setting("customTitle"),
+        customLogo: await setting("customLogo"),
     };
     if (!hideVersion) {
         info.version = checkVersion.version;

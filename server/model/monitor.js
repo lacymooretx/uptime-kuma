@@ -213,6 +213,9 @@ class Monitor extends BeanModel {
             saveResponse: this.getSaveResponse(),
             saveErrorResponse: this.getSaveErrorResponse(),
             responseMaxLength: this.response_max_length ?? RESPONSE_BODY_LENGTH_DEFAULT,
+
+            // ConnectWise Manage per-monitor config
+            cwConfig: this.cw_config ? JSON.parse(this.cw_config) : null,
         };
 
         if (includeSensitiveData) {
@@ -1095,6 +1098,10 @@ class Monitor extends BeanModel {
             Monitor.sendStats(io, this.id, this.user_id);
 
             // Store to database
+            // Round ping to integer for PostgreSQL bigint compatibility
+            if (bean.ping != null) {
+                bean.ping = Math.round(bean.ping);
+            }
             log.debug("monitor", `[${this.name}] Store`);
             await R.store(bean);
 
@@ -1336,7 +1343,7 @@ class Monitor extends BeanModel {
     static async isActive(monitorID, active) {
         const parentActive = await Monitor.isParentActive(monitorID);
 
-        return active === 1 && parentActive;
+        return !!active && parentActive;
     }
 
     /**
@@ -2000,7 +2007,7 @@ class Monitor extends BeanModel {
      * @returns {Promise<void>}
      */
     static async unlinkAllChildren(groupID) {
-        return await R.exec("UPDATE `monitor` SET parent = ? WHERE parent = ? ", [null, groupID]);
+        return await R.exec("UPDATE \"monitor\" SET parent = ? WHERE parent = ? ", [null, groupID]);
     }
 
     /**
@@ -2059,7 +2066,7 @@ class Monitor extends BeanModel {
         }
 
         const parentActive = await Monitor.isParentActive(parent.id);
-        return parent.active === 1 && parentActive;
+        return !!parent.active && parentActive;
     }
 
     /**

@@ -356,15 +356,39 @@ class Database {
                 },
                 pool: mariadbPoolConfig,
             };
+        } else if (dbConfig.type === "postgres") {
+            config = {
+                client: "pg",
+                connection: {
+                    host: dbConfig.hostname,
+                    port: dbConfig.port,
+                    user: dbConfig.username,
+                    password: dbConfig.password,
+                    database: dbConfig.dbName,
+                    ...(dbConfig.ssl
+                        ? {
+                            ssl: {
+                                rejectUnauthorized: true,
+                                ...(dbConfig.ca && dbConfig.ca.trim() !== "" ? { ca: dbConfig.ca } : {}),
+                            },
+                        }
+                        : {}),
+                },
+                pool: {
+                    min: 0,
+                    max: parsedMaxPoolConnections,
+                    idleTimeoutMillis: 30000,
+                },
+            };
         } else {
             throw new Error("Unknown Database type: " + dbConfig.type);
         }
 
-        // Set to utf8mb4 for MariaDB
+        // Set to utf8mb4 and ANSI_QUOTES for MariaDB
         if (dbConfig.type.endsWith("mariadb")) {
             config.pool = {
                 afterCreate(conn, done) {
-                    conn.query("SET CHARACTER SET utf8mb4;", (err) => done(err, conn));
+                    conn.query("SET CHARACTER SET utf8mb4; SET SESSION sql_mode = CONCAT(@@sql_mode, ',ANSI_QUOTES');", (err) => done(err, conn));
                 },
             };
         }
@@ -372,6 +396,54 @@ class Database {
         const knexInstance = knex(config);
 
         R.setup(knexInstance);
+
+        // Monkey-patch RedBean for PostgreSQL compatibility.
+        // 1) knex.raw() for pg returns { rows: [...] }, not a plain array.
+        //    RedBean only unwraps for mysql. We need to unwrap for pg too.
+        // 2) getRow(autoLimit=true) appends `limit $1` (native PG binding)
+        //    but the user query uses `?` (knex binding), causing mixed binding error.
+        if (dbConfig.type === "postgres") {
+            const origNormalizeRaw = R.normalizeRaw.bind(R);
+            R.normalizeRaw = async function (sql, data) {
+                let result = await R.normalizeRawCore(sql, data);
+                R.queryLog(sql);
+                // pg driver returns { rows: [...] }, extract the rows array
+                if (result && result.rows) {
+                    return result.rows;
+                }
+                return result;
+            };
+
+            const origGetRow = R.getRow.bind(R);
+            R.getRow = async function (sql, data = [], autoLimit = false) {
+                if (autoLimit) {
+                    sql = sql + " limit ?";
+                    data = data.concat([1]);
+                    return origGetRow(sql, data, false);
+                }
+                return origGetRow(sql, data, false);
+            };
+
+            // 3) R.store() on new beans does knex(type).insert(obj) and sets
+            //    bean.id = result[0]. PostgreSQL returns [] from plain insert()
+            //    (no RETURNING clause), so bean.id becomes undefined.
+            //    Fix: after insert, fetch the ID via currval().
+            const origStoreCore = R.storeCore.bind(R);
+            R.storeCore = async function (bean, changedFieldsOnly = true) {
+                const isInsert = !bean.id;
+                const result = await origStoreCore(bean, changedFieldsOnly);
+                if (isInsert && !bean.id) {
+                    const row = await R.getRow(
+                        "SELECT currval(pg_get_serial_sequence(?, 'id')) as id",
+                        [bean.getType()]
+                    );
+                    if (row) {
+                        bean.id = parseInt(row.id, 10);
+                    }
+                }
+                return bean.id;
+            };
+        }
 
         if (process.env.SQL_LOG === "1") {
             R.debug(true);
@@ -393,6 +465,8 @@ class Database {
             }
         } else if (dbConfig.type.endsWith("mariadb")) {
             await this.initMariaDB();
+        } else if (dbConfig.type === "postgres") {
+            await this.initPostgres();
         }
     }
 
@@ -443,6 +517,60 @@ class Database {
     }
 
     /**
+     * Initialize PostgreSQL
+     * @returns {Promise<void>}
+     */
+    static async initPostgres() {
+        log.debug("db", "Setting up PostgreSQL compatibility...");
+
+        // Create a custom operator so `boolean_col = integer` works (SQLite/MySQL compat).
+        // PostgreSQL is strict: boolean = integer fails. We create an operator that casts.
+        try {
+            await R.exec(`
+                CREATE OR REPLACE FUNCTION bool_eq_int(boolean, integer) RETURNS boolean AS $$
+                    SELECT $1 = ($2 <> 0)
+                $$ LANGUAGE SQL IMMUTABLE;
+            `);
+            await R.exec(`
+                DO $$ BEGIN
+                    CREATE OPERATOR = (
+                        LEFTARG = boolean, RIGHTARG = integer,
+                        FUNCTION = bool_eq_int, COMMUTATOR = =
+                    );
+                EXCEPTION WHEN duplicate_function THEN NULL;
+                END $$;
+            `);
+            await R.exec(`
+                CREATE OR REPLACE FUNCTION int_eq_bool(integer, boolean) RETURNS boolean AS $$
+                    SELECT ($1 <> 0) = $2
+                $$ LANGUAGE SQL IMMUTABLE;
+            `);
+            await R.exec(`
+                DO $$ BEGIN
+                    CREATE OPERATOR = (
+                        LEFTARG = integer, RIGHTARG = boolean,
+                        FUNCTION = int_eq_bool, COMMUTATOR = =
+                    );
+                EXCEPTION WHEN duplicate_function THEN NULL;
+                END $$;
+            `);
+            log.info("db", "Created boolean/integer comparison operators");
+        } catch (e) {
+            log.warn("db", "Boolean/integer operator setup: " + e.message);
+        }
+
+        log.debug("db", "Checking if PostgreSQL database tables exist...");
+
+        let hasTable = await R.hasTable("docker_host");
+        if (!hasTable) {
+            const { createTables } = require("../db/knex_init_db");
+            await createTables();
+        } else {
+            log.debug("db", "PostgreSQL database already has tables");
+        }
+    }
+
+    /**
      * Patch the database
      * @param {number} port Start the migration server for aggregate tables on this port if provided
      * @param {string} hostname Start the migration server for aggregate tables on this hostname if provided
@@ -464,6 +592,10 @@ class Database {
                 await R.exec("PRAGMA foreign_keys = OFF");
             }
 
+            if (Database.dbConfig.type === "postgres") {
+                await R.exec("SET session_replication_role = 'replica'");
+            }
+
             await R.knex.migrate.latest({
                 directory: Database.knexMigrationsPath,
             });
@@ -471,6 +603,10 @@ class Database {
             // Enable foreign key check for SQLite
             if (Database.dbConfig.type === "sqlite") {
                 await R.exec("PRAGMA foreign_keys = ON");
+            }
+
+            if (Database.dbConfig.type === "postgres") {
+                await R.exec("SET session_replication_role = 'origin'");
             }
 
             await this.migrateAggregateTable(port, hostname);
@@ -633,7 +769,7 @@ class Database {
 
             await R.exec("UPDATE incident SET status_page_id = ? WHERE status_page_id IS NULL", [id]);
 
-            await R.exec("UPDATE [group] SET status_page_id = ? WHERE status_page_id IS NULL", [id]);
+            await R.exec("UPDATE \"group\" SET status_page_id = ? WHERE status_page_id IS NULL", [id]);
 
             await R.exec("DELETE FROM setting WHERE type = 'statusPage'");
 
@@ -763,6 +899,9 @@ class Database {
             let stats = await fsAsync.stat(Database.sqlitePath);
             log.debug("db", stats);
             return stats.size;
+        } else if (Database.dbConfig.type === "postgres") {
+            let result = await R.getRow("SELECT pg_database_size(current_database()) as size");
+            return result ? result.size : 0;
         }
         return 0;
     }
@@ -774,6 +913,8 @@ class Database {
     static async shrink() {
         if (Database.dbConfig.type === "sqlite") {
             await R.exec("VACUUM");
+        } else if (Database.dbConfig.type === "postgres") {
+            await R.exec("VACUUM ANALYZE");
         }
     }
 
@@ -783,6 +924,8 @@ class Database {
     static sqlHourOffset() {
         if (Database.dbConfig.type === "sqlite") {
             return "DATETIME('now', ? || ' hours')";
+        } else if (Database.dbConfig.type === "postgres") {
+            return "(NOW() + INTERVAL '1 hour' * ?)";
         } else {
             return "DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? HOUR)";
         }
