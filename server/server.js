@@ -195,6 +195,7 @@ const TagService = require("./services/tag-service");
 const NotificationService = require("./services/notification-service");
 const SettingsService = require("./services/settings-service");
 const MonitorService = require("./services/monitor-service");
+const ApiKeyService = require("./services/api-key-service");
 
 app.use(express.json());
 
@@ -1488,6 +1489,14 @@ async function initDatabase(testMode = false) {
     if ((await R.knex("user").count("id as count").first()).count == 0) {
         log.info("server", "No user, need setup");
         needSetup = true;
+    }
+
+    // Reconcile bootstrap API key from env var, if configured.
+    // Runs every startup so rotations via env var take effect immediately.
+    try {
+        await ApiKeyService.bootstrapFromEnv();
+    } catch (e) {
+        log.error("apikeys", "bootstrapFromEnv failed: " + (e && e.message));
     }
 
     server.jwtSecret = jwtSecretBean.value;

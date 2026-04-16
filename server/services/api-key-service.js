@@ -79,6 +79,61 @@ class ApiKeyService {
         await R.exec("UPDATE api_key SET active = true WHERE id = ? ", [keyID]);
         apicache.clear();
     }
+
+    /**
+     * Reconcile an API key from env (UPTIME_KUMA_BOOTSTRAP_API_KEY).
+     * Expected format: uk<id>_<clear>. Upserts an api_key row with that id
+     * owned by the first active user, bcrypt(clear) as the stored hash,
+     * active=true, expires=2099, name="Bootstrap (env)". Also enables
+     * apiKeysEnabled. Safe to run on every startup; idempotent.
+     * @returns {Promise<void>}
+     */
+    static async bootstrapFromEnv() {
+        const envKey = process.env.UPTIME_KUMA_BOOTSTRAP_API_KEY;
+        if (!envKey) {
+            return;
+        }
+        if (!envKey.startsWith("uk") || !envKey.includes("_")) {
+            log.warn("apikeys", "UPTIME_KUMA_BOOTSTRAP_API_KEY is malformed (expected uk<id>_<clear>), skipping");
+            return;
+        }
+        const underscoreIdx = envKey.indexOf("_");
+        const idStr = envKey.substring(2, underscoreIdx);
+        const clear = envKey.substring(underscoreIdx + 1);
+        const id = parseInt(idStr, 10);
+        if (!Number.isInteger(id) || id <= 0 || !clear) {
+            log.warn("apikeys", "UPTIME_KUMA_BOOTSTRAP_API_KEY is malformed, skipping");
+            return;
+        }
+
+        const firstUser = await R.findOne("user", " active = 1 ORDER BY id ASC ");
+        if (!firstUser) {
+            log.info("apikeys", "Bootstrap API key skipped: no active user yet");
+            return;
+        }
+
+        const hashedKey = await passwordHash.generate(clear);
+        const expires = "2099-01-01 00:00:00";
+        const name = "Bootstrap (env)";
+        const existing = await R.findOne("api_key", " id = ? ", [id]);
+
+        if (existing) {
+            await R.exec(
+                "UPDATE api_key SET key = ?, name = ?, user_id = ?, active = true, expires = ? WHERE id = ?",
+                [hashedKey, name, firstUser.id, expires, id]
+            );
+            log.info("apikeys", `Bootstrap API key id=${id} reconciled from env`);
+        } else {
+            await R.exec(
+                "INSERT INTO api_key (id, key, name, user_id, active, expires, created_date) VALUES (?, ?, ?, ?, true, ?, ?)",
+                [id, hashedKey, name, firstUser.id, expires, new Date().toISOString()]
+            );
+            log.info("apikeys", `Bootstrap API key id=${id} created from env`);
+        }
+
+        await Settings.set("apiKeysEnabled", true);
+        apicache.clear();
+    }
 }
 
 module.exports = ApiKeyService;
