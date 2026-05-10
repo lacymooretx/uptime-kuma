@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Topbar, Crumb, CrumbSep, LivePill } from "../components/Topbar";
 import { Card, Tag } from "../components/ui";
 import {
@@ -22,6 +23,7 @@ type Integration = {
   description: string;
   status: "connected" | "available" | "coming-soon";
   detail?: string;
+  configurePath?: string;
 };
 
 const integrations: Integration[] = [
@@ -31,8 +33,8 @@ const integrations: Integration[] = [
     icon: Briefcase,
     category: "Ticketing",
     description: "Auto-open tickets when a monitor is down longer than the SLO threshold.",
-    status: "connected",
-    detail: "company: aspendora · 1 board",
+    status: "available",
+    configurePath: "/integrations/connectwise",
   },
   {
     id: "oidc-entra",
@@ -170,17 +172,32 @@ export default function Integrations() {
                           )}
                         </div>
                         <div className="mt-auto flex items-center justify-end gap-2">
-                          {i.status === "connected" && (
+                          {i.status === "connected" && (i.configurePath ? (
+                            <Link
+                              to={i.configurePath}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 font-mono text-[11px] text-secondary-fg hover:bg-secondary/80"
+                            >
+                              Configure
+                            </Link>
+                          ) : (
                             <button className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 font-mono text-[11px] text-secondary-fg hover:bg-secondary/80">
                               Configure
                             </button>
-                          )}
-                          {i.status === "available" && (
+                          ))}
+                          {i.status === "available" && (i.configurePath ? (
+                            <Link
+                              to={i.configurePath}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 font-mono text-[11px] font-semibold text-primary-fg hover:opacity-90"
+                            >
+                              <Plug className="size-3" />
+                              Connect
+                            </Link>
+                          ) : (
                             <button className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 font-mono text-[11px] font-semibold text-primary-fg hover:opacity-90">
                               <Plug className="size-3" />
                               Connect
                             </button>
-                          )}
+                          ))}
                         </div>
                       </Card>
                     );

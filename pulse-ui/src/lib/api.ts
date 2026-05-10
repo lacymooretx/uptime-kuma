@@ -140,17 +140,88 @@ export async function fetchMaintenance(): Promise<ApiMaintenance[]> {
   return Array.isArray(env.data) ? env.data : Object.values(env.data);
 }
 
+// Server stores the full provider-specific config as a JSON string in `config`.
+// Top-level columns: id, name, active, isDefault. The `type` and provider fields
+// (cwApiUrl, slackWebhookUrl, etc.) live inside the parsed config blob.
+export interface ApiNotificationRaw {
+  id: number;
+  name: string;
+  active: boolean;
+  isDefault: boolean;
+  config: string;
+}
+
 export interface ApiNotification {
   id: number;
   name: string;
   type: string;
   active: boolean;
   isDefault: boolean;
-  config?: Record<string, unknown>;
+  config: Record<string, unknown>;
+}
+
+function parseNotification(raw: ApiNotificationRaw): ApiNotification {
+  let cfg: Record<string, unknown> = {};
+  try {
+    cfg = raw.config ? JSON.parse(raw.config) : {};
+  } catch {
+    cfg = {};
+  }
+  return {
+    id: raw.id,
+    name: raw.name,
+    active: raw.active,
+    isDefault: raw.isDefault,
+    type: typeof cfg.type === "string" ? cfg.type : "Unknown",
+    config: cfg,
+  };
 }
 
 export async function fetchNotifications(): Promise<ApiNotification[]> {
-  const env = await apiFetch<Envelope<ApiNotification[]>>("/api/v1/notifications");
+  const env = await apiFetch<Envelope<ApiNotificationRaw[]>>("/api/v1/notifications");
+  return env.data.map(parseNotification);
+}
+
+export async function createNotification(body: Record<string, unknown>): Promise<{ id: number }> {
+  const env = await apiFetch<Envelope<{ id: number }>>("/api/v1/notifications", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return env.data;
+}
+
+export async function updateNotification(id: number, body: Record<string, unknown>): Promise<{ id: number }> {
+  const env = await apiFetch<Envelope<{ id: number }>>(`/api/v1/notifications/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return env.data;
+}
+
+export async function deleteNotification(id: number): Promise<void> {
+  await apiFetch(`/api/v1/notifications/${id}`, { method: "DELETE" });
+}
+
+// CW Manage API proxy — used by the configuration UI to validate creds and
+// populate board/status pickers without exposing creds in the browser.
+export interface CwProxyParams {
+  cwApiUrl: string;
+  cwCompanyId: string;
+  cwPublicKey: string;
+  cwPrivateKey: string;
+  cwClientId: string;
+  resource: "boards" | "statuses" | "types" | "subtypes" | "items";
+  boardId?: number;
+}
+
+export async function cwProxy<T = unknown>(params: CwProxyParams): Promise<T> {
+  const env = await apiFetch<Envelope<T>>("/api/cw/proxy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
   return env.data;
 }
 

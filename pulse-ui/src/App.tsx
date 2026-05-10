@@ -12,6 +12,7 @@ import Notifications from "./pages/Notifications";
 import SettingsPage from "./pages/Settings";
 import Team from "./pages/Team";
 import Integrations from "./pages/Integrations";
+import IntegrationConnectWise from "./pages/IntegrationConnectWise";
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/maintenance" element={<Maintenance />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/integrations" element={<Integrations />} />
+        <Route path="/integrations/connectwise" element={<IntegrationConnectWise />} />
         <Route path="/team" element={<Team />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
