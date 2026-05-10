@@ -77,6 +77,8 @@ log.info("server", "Loading modules");
 log.debug("server", "Importing express");
 const express = require("express");
 const expressStaticGzip = require("express-static-gzip");
+const path = require("path");
+const fs = require("fs");
 log.debug("server", "Importing redbean-node");
 const { R } = require("redbean-node");
 log.debug("server", "Importing jsonwebtoken");
@@ -350,6 +352,21 @@ let needSetup = false;
 
     // ./data/upload
     app.use("/upload", express.static(Database.uploadDir));
+
+    // Pulse UI (new dashboard) — served at /v2/ when its bundle has been built.
+    // The frontend lives in pulse-ui/ and runs `npm run build` to produce pulse-ui/dist.
+    // OIDC/REST API are reused as-is; Pulse stores the JWT and calls /api/v1.
+    const pulseDistPath = path.join(__dirname, "..", "pulse-ui", "dist");
+    if (fs.existsSync(pulseDistPath)) {
+        app.use("/v2", express.static(pulseDistPath, { index: false }));
+        // SPA fallback: React Router handles any non-asset path under /v2.
+        app.get(/^\/v2(\/.*)?$/, (_req, response) => {
+            response.sendFile(path.join(pulseDistPath, "index.html"));
+        });
+        log.info("server", "Pulse UI mounted at /v2 from pulse-ui/dist");
+    } else {
+        log.info("server", "Pulse UI bundle not found at pulse-ui/dist — skipping /v2 mount");
+    }
 
     app.get("/.well-known/change-password", async (_, response) => {
         response.redirect("https://github.com/louislam/uptime-kuma/wiki/Reset-Password-via-CLI");

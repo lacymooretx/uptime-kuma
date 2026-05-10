@@ -15,6 +15,20 @@ const OIDC_TENANT_ID = process.env.OIDC_TENANT_ID;
 const OIDC_CALLBACK_URL = process.env.OIDC_CALLBACK_URL;
 const OIDC_REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP;
 
+// Allowlist of post-auth return paths. Anything else falls back to /dashboard
+// to prevent open-redirect via the `?return=` query param.
+const RETURN_PATH_ALLOWLIST = [ "/dashboard", "/v2/", "/v2" ];
+const DEFAULT_RETURN_PATH = "/dashboard";
+
+function resolveReturnPath(raw) {
+    if (typeof raw !== "string" || raw.length === 0) return DEFAULT_RETURN_PATH;
+    // Reject anything that could parse as an absolute URL or protocol-relative.
+    if (raw[0] !== "/" || raw.startsWith("//")) return DEFAULT_RETURN_PATH;
+    return RETURN_PATH_ALLOWLIST.some((p) => raw === p || raw.startsWith(p + "/") || raw.startsWith(p + "?"))
+        ? raw
+        : DEFAULT_RETURN_PATH;
+}
+
 let oidcClient = null;
 
 async function getOIDCClient() {
@@ -53,10 +67,12 @@ router.get("/login", async (req, res) => {
 
         const nonce = generators.nonce();
         const state = generators.state();
+        const returnPath = resolveReturnPath(req.query.return);
 
-        // Store nonce and state in a short-lived cookie
+        // Store nonce, state, and intended return path in short-lived cookies
         res.cookie("oidc_nonce", nonce, { httpOnly: true, secure: true, maxAge: 600000, sameSite: "lax" });
         res.cookie("oidc_state", state, { httpOnly: true, secure: true, maxAge: 600000, sameSite: "lax" });
+        res.cookie("oidc_return", returnPath, { httpOnly: true, secure: true, maxAge: 600000, sameSite: "lax" });
 
         const authUrl = client.authorizationUrl({
             scope: "openid profile email",
@@ -82,10 +98,12 @@ router.get("/callback", async (req, res) => {
 
         const nonce = req.cookies?.oidc_nonce;
         const state = req.cookies?.oidc_state;
+        const returnPath = resolveReturnPath(req.cookies?.oidc_return);
 
         // Clear cookies
         res.clearCookie("oidc_nonce");
         res.clearCookie("oidc_state");
+        res.clearCookie("oidc_return");
 
         const params = client.callbackParams(req);
         const tokenSet = await client.callback(OIDC_CALLBACK_URL, params, {
@@ -136,8 +154,10 @@ router.get("/callback", async (req, res) => {
         const server = UptimeKumaServer.getInstance();
         const token = User.createJWT(user, server.jwtSecret);
 
-        // Redirect to frontend with token
-        res.redirect(`/dashboard?token=${encodeURIComponent(token)}`);
+        // Redirect to the intended frontend with token. Respects the return cookie
+        // set at /login time (allowlisted, defaults to /dashboard).
+        const sep = returnPath.includes("?") ? "&" : "?";
+        res.redirect(`${returnPath}${sep}token=${encodeURIComponent(token)}`);
     } catch (e) {
         log.error("oidc", e.message);
         res.status(500).send(`

@@ -1,3 +1,14 @@
+# ---- Pulse UI build stage ----
+# Builds the new dashboard (pulse-ui/) into pulse-ui/dist so the final
+# image can copy it in without dragging node_modules along.
+FROM node:20-slim AS pulse-builder
+WORKDIR /pulse
+COPY pulse-ui/package.json pulse-ui/package-lock.json ./
+RUN npm ci --no-audit
+COPY pulse-ui/ ./
+RUN npm run build
+
+# ---- Final image ----
 FROM node:20-slim
 
 WORKDIR /app
@@ -27,6 +38,10 @@ COPY src/ ./src/
 COPY config/ ./config/
 COPY db/ ./db/
 COPY extra/ ./extra/
+
+# Pulse UI bundle (built in the pulse-builder stage above).
+# server.js mounts this at /v2/ when the directory exists.
+COPY --from=pulse-builder /pulse/dist ./pulse-ui/dist
 
 # Uptime Kuma default port
 EXPOSE 3001
