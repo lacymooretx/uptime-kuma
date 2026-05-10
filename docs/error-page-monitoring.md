@@ -118,14 +118,24 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 The exception is still logged by the framework before this delegate runs, so observability isn't affected.
 
 ### Done
-- ✅ **servicetracker** (`~/code/3eprojects/service-app/web-app/ServiceTracker/Program.cs`) — delegate exception handler installed. Keyword monitor #78 still UP after deploy. The original triggering scenario is now caught by both keyword *and* plain HTTP monitors.
+- ✅ **servicetracker** (`~/code/3eprojects/service-app/web-app/ServiceTracker/Program.cs`) — delegate exception handler installed. Keyword monitor #78 (id=78) still UP. The original triggering scenario is now caught by both keyword *and* plain HTTP monitors.
+- ✅ **controlr** (`~/code/controlr/ControlR.Web.Server/Program.cs`) — delegate handler. Keyword monitor #63 still UP (`200 - OK, keyword is found`).
+- ✅ **emailbridge.Web** (`~/code/aspendora-email-bridge/src/EmailBridge.Web/Program.cs`) — delegate handler. Keyword monitor #80 still UP. Compose lives at `/opt/services/emailbridge/docker/`, not `/opt/services/emailbridge/`.
+- ✅ **file-share-blazor** (`~/code/defiant/file-share-blazor/AspendoraFileShare/Program.cs`) — delegate handler. Keyword monitor #65 still UP.
 
-### Backlog (apply the same pattern)
-- **callqa, controlr, aspendorachat, emailbridge, file-share-blazor, people-directory, user-management, defiant-editor, defiant-mgmt** — same ASP.NET / Blazor pattern.
-- **imtec-sql-ip** (Flask) — disable debug, add a 500-handler that returns proper status.
+### Audited and not needed
+These apps have no `UseExceptionHandler` and no Razor error page — the framework's default 500-with-empty-body is already the correct behavior:
+- aspendorachat (`~/code/chat-agent/AspendoraChat.Server`, `AspendoraChat.TechConsole`)
+- emailbridge.Api (`~/code/aspendora-email-bridge/src/EmailBridge.Api`)
+- people-directory.Api (`~/code/3eprojects/people-app/backend/src/PeopleDirectory.Api`)
+- user-management.Web (`/opt/services/user-management/src/Web` on VM 301)
+
+### Backlog (different stacks, apply equivalent fix)
+- **imtec-sql-ip** (Flask) — disable debug, ensure 500-handler returns proper status.
 - **infodex** (Node) — confirm Express error handler returns 5xx.
 - **media-toolkit, aspendora-console, ticket-auditor, homepro** (Python/FastAPI) — confirm framework error handler.
-- **n8n** — fork has `Dockerfile.aspendora`; could add custom error middleware if needed.
+- **n8n** — fork has `Dockerfile.aspendora`; only fix if a real failure mode emerges.
+- **callqa, defiant-editor, defiant-mgmt** — couldn't locate Program.cs locally or on server; need to investigate stack.
 
 ### Verification ritual
 
