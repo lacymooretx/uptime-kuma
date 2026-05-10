@@ -1,5 +1,5 @@
 import { Card } from "./ui";
-import { lanes, type BeatStatus } from "../data/fixtures";
+import { lanes as fallbackLanes, type BeatStatus, type Lane } from "../data/fixtures";
 
 const cellCls: Record<BeatStatus, string> = {
   up: "bg-secondary",
@@ -18,15 +18,29 @@ const dotCls = (s: BeatStatus) =>
     unknown: "bg-muted-fg",
   })[s];
 
-const days = ["Mon May 3", "Tue 4", "Wed 5", "Thu 6", "Fri 7", "Sat 8", "Today"];
+function buildDayLabels(): string[] {
+  const labels: string[] = [];
+  const now = new Date();
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    if (i === 0) labels.push("Today");
+    else if (i === 6) labels.push(`${dayNames[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`);
+    else labels.push(`${dayNames[d.getDay()]} ${d.getDate()}`);
+  }
+  return labels;
+}
 
-export default function Swimlane() {
+export default function Swimlane({ lanes }: { lanes?: Lane[] } = {}) {
+  const data = lanes && lanes.length > 0 ? lanes : fallbackLanes;
+  const days = buildDayLabels();
   return (
     <Card className="overflow-hidden p-0">
       <div className="flex items-center justify-between border-b border-border px-[18px] py-3.5">
         <div>
           <h3 className="font-mono text-sm font-semibold">
-            Timeline · {lanes.length} monitors had incidents
+            Timeline · {data.length} monitors had incidents
           </h3>
           <div className="text-[11px] text-muted-fg">
             each row = monitor · each cell = 1 day · click for trace
@@ -67,7 +81,12 @@ export default function Swimlane() {
       </div>
 
       <div className="px-[18px] pb-3.5">
-        {lanes.map((lane) => (
+        {data.length === 0 && (
+          <div className="py-8 text-center font-mono text-[12px] text-muted-fg">
+            No incidents in the last 7 days · all clean
+          </div>
+        )}
+        {data.map((lane) => (
           <div key={lane.name} className="flex items-center py-1.5">
             <div className="flex w-40 items-center gap-2">
               <span className={`size-1.5 rounded-full ${dotCls(lane.status)}`} />

@@ -1,5 +1,5 @@
 import { Card } from "./ui";
-import { last30Days, type DayState } from "../data/fixtures";
+import { last30Days as fallbackDays, type DayState } from "../data/fixtures";
 
 const cls: Record<DayState, string> = {
   up: "bg-success-fg/55",
@@ -8,7 +8,18 @@ const cls: Record<DayState, string> = {
   maint: "bg-info-fg/55",
 };
 
-export default function ThirtyDayStrip() {
+export default function ThirtyDayStrip({
+  days,
+  uptimeLabel,
+  summary,
+}: {
+  days?: DayState[];
+  uptimeLabel?: string;
+  summary?: string;
+} = {}) {
+  const last30Days = days && days.length > 0 ? days : fallbackDays;
+  const headerLabel = uptimeLabel ?? "99.31% over 30 days";
+  const footerSummary = summary ?? "4 incidents · 1 maintenance · 2 deploys";
   return (
     <Card className="p-[18px] flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -18,7 +29,7 @@ export default function ThirtyDayStrip() {
             each cell = 1 day · color = % checks succeeded
           </div>
         </div>
-        <div className="font-mono text-[13px] font-semibold">99.31% over 30 days</div>
+        <div className="font-mono text-[13px] font-semibold">{headerLabel}</div>
       </div>
       <div className="flex h-[42px] gap-[3px]">
         {last30Days.map((d, i) => (
@@ -27,7 +38,7 @@ export default function ThirtyDayStrip() {
       </div>
       <div className="flex justify-between font-mono text-[10px]">
         <span className="text-muted-fg">30 days ago</span>
-        <span className="text-muted-fg">4 incidents · 1 maintenance · 2 deploys</span>
+        <span className="text-muted-fg">{footerSummary}</span>
         <span className="font-semibold text-destructive">today</span>
       </div>
     </Card>

@@ -9,38 +9,102 @@ import {
   RotateCw,
   Check,
   MoreHorizontal,
+  Loader2,
 } from "lucide-react";
+import { useParams } from "react-router-dom";
 import { Topbar, Crumb, CrumbSep } from "../components/Topbar";
 import { Card, IconButton, Tag, StatLabel } from "../components/ui";
 import LatencyChart from "../components/LatencyChart";
 import ThirtyDayStrip from "../components/ThirtyDayStrip";
-
-type IncidentRow = {
-  sev: string;
-  tone: "destructive" | "neutral" | "info";
-  title: string;
-  meta: string;
-  duration: string;
-  highlight?: boolean;
-};
-
-const incidentRows: IncidentRow[] = [
-  { sev: "ACTIVE", tone: "destructive", title: "HTTP 500 · keyword match \"An error occurred\"", meta: "started 7m 22s ago · 22:14 UTC", duration: "—", highlight: true },
-  { sev: "RESOLVED", tone: "neutral", title: "Connection timeout · 5 consecutive checks", meta: "3 days ago · MTTR 4m 38s · auto-recovered", duration: "4m" },
-  { sev: "RESOLVED", tone: "neutral", title: "HTTP 502 · upstream connection refused", meta: "8 days ago · MTTR 11m · acked by lacy", duration: "11m" },
-  { sev: "MAINT", tone: "info", title: "Cert renewal window · planned", meta: "14 days ago · 12m duration · alerts suppressed", duration: "12m" },
-];
-
-const certRows = [
-  ["Issued", "2026-04-27"],
-  ["Expires", "2026-06-26"],
-  ["SHA-256", "a4:8c:91:e2:…"],
-  ["OCSP staple", "good · 4h fresh", "success"],
-] as const;
+import { useMonitor, fmtMttr, type MonitorView } from "../hooks/useMonitor";
 
 const tabs = ["Overview", "Latency", "Errors", "Headers", "Certificate", "Configuration"];
 
+const certRows: [string, string, "default" | "success"][] = [
+  ["Issued", "—", "default"],
+  ["Expires", "—", "default"],
+  ["SHA-256", "—", "default"],
+  ["OCSP staple", "not checked", "default"],
+];
+
+function statusPill(view: MonitorView) {
+  if (view.status === "down") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-error-bg px-3 py-1.5">
+        <span className="size-1.5 rounded-full bg-destructive" />
+        <span className="font-mono text-[11px] font-bold tracking-[0.05em] text-error-fg">DOWN</span>
+      </span>
+    );
+  }
+  if (view.status === "degraded") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-bg px-3 py-1.5">
+        <span className="size-1.5 rounded-full bg-warning-fg" />
+        <span className="font-mono text-[11px] font-bold tracking-[0.05em] text-warning-fg">SLOW</span>
+      </span>
+    );
+  }
+  if (view.status === "maint") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-info-bg px-3 py-1.5">
+        <span className="size-1.5 rounded-full bg-info-fg" />
+        <span className="font-mono text-[11px] font-bold tracking-[0.05em] text-info-fg">MAINT</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-3 py-1.5">
+      <span className="size-1.5 rounded-full bg-success-fg" />
+      <span className="font-mono text-[11px] font-bold tracking-[0.05em] text-success-fg">UP</span>
+    </span>
+  );
+}
+
 export default function MonitorDetail() {
+  const { slug } = useParams<{ slug: string }>();
+  const idNum = slug ? Number(slug) : NaN;
+  const state = useMonitor(Number.isFinite(idNum) ? idNum : null);
+
+  if (state.kind === "loading") {
+    return (
+      <>
+        <Topbar
+          left={<>
+            <ArrowLeft className="size-4 text-muted-fg" />
+            <Crumb>Monitors</Crumb>
+            <CrumbSep />
+            <Crumb active>{slug}</Crumb>
+          </>}
+        />
+        <div className="flex flex-1 items-center justify-center text-muted-fg">
+          <Loader2 className="size-6 animate-spin" />
+        </div>
+      </>
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <>
+        <Topbar
+          left={<>
+            <ArrowLeft className="size-4 text-muted-fg" />
+            <Crumb>Monitors</Crumb>
+            <CrumbSep />
+            <Crumb active>{slug}</Crumb>
+          </>}
+        />
+        <div className="flex flex-1 items-center justify-center text-error-fg p-8 font-mono text-sm">
+          {state.message}
+        </div>
+      </>
+    );
+  }
+
+  const v = state.data;
+  const m = v.monitor;
+  const tagLine = m.tags.slice(0, 3);
+
   return (
     <>
       <Topbar
@@ -49,9 +113,9 @@ export default function MonitorDetail() {
             <ArrowLeft className="size-4 text-muted-fg" />
             <Crumb>Monitors</Crumb>
             <CrumbSep />
-            <Crumb>servicetracker</Crumb>
+            <Crumb>{m.type}</Crumb>
             <CrumbSep />
-            <Crumb active>service-log.3endt.com</Crumb>
+            <Crumb active>{m.name}</Crumb>
           </>
         }
         right={
@@ -71,29 +135,25 @@ export default function MonitorDetail() {
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="flex flex-col gap-2.5 min-w-0">
               <div className="flex flex-wrap items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-error-bg px-3 py-1.5">
-                  <span className="size-1.5 rounded-full bg-destructive" />
-                  <span className="font-mono text-[11px] font-bold tracking-[0.05em] text-error-fg">
-                    DOWN · 7m 22s
-                  </span>
-                </span>
-                <span className="font-mono text-[11px] text-muted-fg">servicetracker</span>
-                <Tag tone="info">asp.net</Tag>
-                <Tag>prod</Tag>
-                <Tag>us-east</Tag>
+                {statusPill(v)}
+                <span className="font-mono text-[11px] text-muted-fg">{m.type}</span>
+                {tagLine.map((t) => (
+                  <Tag key={t.id}>{t.name}</Tag>
+                ))}
               </div>
               <h1 className="font-mono text-[32px] font-semibold leading-tight truncate">
-                service-log.3endt.com
+                {m.name}
               </h1>
               <div className="flex flex-wrap items-center gap-3.5 text-[12px] text-muted-fg font-mono">
                 <span className="flex items-center gap-1.5">
-                  <Globe className="size-3.5" /> GET https://service-log.3endt.com/health
+                  <Globe className="size-3.5" />
+                  {m.url || (m.hostname ? `${m.hostname}${m.port ? ":" + m.port : ""}` : "—")}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Timer className="size-3.5" /> 60s interval
+                  <Timer className="size-3.5" /> {m.interval}s interval
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <ShieldCheck className="size-3.5" /> cert · 47d
+                  <ShieldCheck className="size-3.5" /> cert · n/a
                 </span>
               </div>
             </div>
@@ -105,9 +165,11 @@ export default function MonitorDetail() {
               <button className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3.5 py-2 font-mono text-xs font-medium text-secondary-fg hover:bg-secondary/80">
                 <RotateCw className="size-3.5" /> Recheck
               </button>
-              <button className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 font-mono text-xs font-semibold text-primary-fg hover:opacity-90">
-                <Check className="size-3.5" strokeWidth={3} /> Acknowledge
-              </button>
+              {v.status === "down" && (
+                <button className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 font-mono text-xs font-semibold text-primary-fg hover:opacity-90">
+                  <Check className="size-3.5" strokeWidth={3} /> Acknowledge
+                </button>
+              )}
               <IconButton aria-label="More">
                 <MoreHorizontal className="size-4" />
               </IconButton>
@@ -127,9 +189,9 @@ export default function MonitorDetail() {
                 ].join(" ")}
               >
                 {t}
-                {t === "Errors" && (
+                {t === "Errors" && v.incidents.length > 0 && (
                   <span className="rounded-full bg-destructive px-1.5 py-0 text-[10px] font-semibold text-white">
-                    3
+                    {v.incidents.length}
                   </span>
                 )}
               </button>
@@ -140,32 +202,36 @@ export default function MonitorDetail() {
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-4">
             <Card className="p-3.5 flex flex-col gap-1">
               <StatLabel>Uptime · 30d</StatLabel>
-              <div className="font-mono text-2xl font-semibold leading-tight">99.31%</div>
-              <div className="text-[11px] text-error-fg">target 99.9% · -0.59% to SLO</div>
+              <div className="font-mono text-2xl font-semibold leading-tight">{v.uptimePct}%</div>
+              <div className="text-[11px] text-muted-fg">target 99.9% · {v.uptimePct >= 99.9 ? "on track" : `${(99.9 - v.uptimePct).toFixed(2)}% to SLO`}</div>
             </Card>
             <Card className="p-3.5 flex flex-col gap-1">
               <StatLabel>MTTR · 30d</StatLabel>
-              <div className="font-mono text-2xl font-semibold leading-tight">6m 14s</div>
-              <div className="text-[11px] text-success-fg">-2m vs prev period</div>
+              <div className="font-mono text-2xl font-semibold leading-tight">{fmtMttr(v.mttrSec)}</div>
+              <div className="text-[11px] text-muted-fg">across {v.important.length} important events</div>
             </Card>
             <Card className="p-3.5 flex flex-col gap-1">
               <StatLabel>Latency · now</StatLabel>
               <div className="flex items-end gap-2 leading-tight">
-                <span className="font-mono text-2xl font-semibold">142</span>
-                <span className="font-mono text-sm font-medium text-muted-fg">/ 287</span>
-                <span className="font-mono text-sm font-medium text-warning-fg">/ 612 ms</span>
+                <span className="font-mono text-2xl font-semibold">{v.p50}</span>
+                <span className="font-mono text-sm font-medium text-muted-fg">/ {v.p95}</span>
+                <span className="font-mono text-sm font-medium text-warning-fg">/ {v.p99} ms</span>
               </div>
               <div className="text-[11px] text-muted-fg">p50 · p95 · p99</div>
             </Card>
             <Card className="p-3.5 flex flex-col gap-1">
-              <StatLabel>Incidents · 30d</StatLabel>
-              <div className="font-mono text-2xl font-semibold leading-tight">7</div>
-              <div className="text-[11px] text-muted-fg">4 acked · 2 auto-recovered · 1 active</div>
+              <StatLabel>Events · 30d</StatLabel>
+              <div className="font-mono text-2xl font-semibold leading-tight">{v.important.length}</div>
+              <div className="text-[11px] text-muted-fg">{v.incidents.filter((i) => i.status === "RESOLVED").length} resolved · {v.incidents.filter((i) => i.status === "ACTIVE").length} active</div>
             </Card>
           </div>
 
-          <LatencyChart />
-          <ThirtyDayStrip />
+          <LatencyChart bars={v.latencyBars} deployLabel={`${v.chart.length} samples · last ${Math.min(60, v.chart.length)}m`} />
+          <ThirtyDayStrip
+            days={v.thirtyDay}
+            uptimeLabel={`${v.uptimePct}% over 30 days`}
+            summary={`${v.incidents.filter((i) => i.status === "RESOLVED").length} incidents · ${v.incidents.filter((i) => i.status === "MAINT").length} maintenance`}
+          />
 
           {/* Bottom row: incidents + cert */}
           <div className="flex flex-col gap-3.5 lg:flex-row">
@@ -173,32 +239,37 @@ export default function MonitorDetail() {
               <div className="flex items-center justify-between border-b border-border px-[18px] py-3.5">
                 <div className="flex items-center gap-2.5">
                   <h3 className="font-mono text-sm font-semibold">Recent incidents</h3>
-                  <span className="font-mono text-[11px] text-muted-fg">7 in last 30d</span>
+                  <span className="font-mono text-[11px] text-muted-fg">{v.incidents.length} in last 30d</span>
                 </div>
                 <button className="font-mono text-[11px] text-muted-fg hover:text-fg">
                   view all →
                 </button>
               </div>
               <ul>
-                {incidentRows.map((r, i) => (
+                {v.incidents.length === 0 && (
+                  <li className="px-[18px] py-6 text-center font-mono text-[12px] text-muted-fg">
+                    No incidents in the last 30 days · clean run
+                  </li>
+                )}
+                {v.incidents.map((r, i) => (
                   <li
-                    key={i}
+                    key={r.id}
                     className={[
                       "flex items-center gap-3.5 px-[18px] py-3",
-                      i < incidentRows.length - 1 ? "border-b border-border" : "",
+                      i < v.incidents.length - 1 ? "border-b border-border" : "",
                       r.highlight ? "bg-error-bg/40" : "",
                     ].join(" ")}
                   >
                     <Tag
                       tone={
-                        r.tone === "destructive"
+                        r.status === "ACTIVE"
                           ? "error"
-                          : r.tone === "info"
+                          : r.status === "MAINT"
                             ? "info"
                             : "neutral"
                       }
                     >
-                      <span className="font-bold tracking-[0.05em]">{r.sev}</span>
+                      <span className="font-bold tracking-[0.05em]">{r.status}</span>
                     </Tag>
                     <div className="flex-1 min-w-0">
                       <div className="font-mono text-[13px] font-medium text-fg truncate">{r.title}</div>
@@ -223,19 +294,12 @@ export default function MonitorDetail() {
                 </button>
               </div>
               <div className="flex flex-col gap-3.5 p-[18px]">
-                <div className="flex items-center gap-3.5">
-                  <div className="flex size-20 flex-col items-center justify-center rounded-full bg-success-bg ring-2 ring-success-fg">
-                    <span className="font-mono text-[28px] font-semibold text-success-fg leading-none">47</span>
-                    <span className="font-mono text-[9px] font-semibold tracking-[0.15em] text-success-fg mt-0.5">DAYS</span>
-                  </div>
-                  <div className="flex flex-col gap-1 min-w-0">
-                    <div className="font-mono text-sm font-semibold">Let's Encrypt R3</div>
-                    <div className="font-mono text-[11px] text-muted-fg">*.3endt.com · ECDSA P-256</div>
-                    <div className="text-[11px] text-success-fg">renews automatically · last 12d ago</div>
-                  </div>
+                <div className="text-[12px] text-muted-fg">
+                  Cert / header / DNS introspection isn't exposed by the v1 REST API yet.
+                  Hookup pending — values shown are placeholders.
                 </div>
                 <div className="flex flex-col gap-2">
-                  {certRows.map(([k, v, tone]) => (
+                  {certRows.map(([k, val, tone]) => (
                     <div key={k} className="flex items-center justify-between">
                       <span className="font-mono text-[11px] text-muted-fg">{k}</span>
                       <span
@@ -243,7 +307,7 @@ export default function MonitorDetail() {
                           tone === "success" ? "text-success-fg" : "text-fg"
                         }`}
                       >
-                        {v}
+                        {val}
                       </span>
                     </div>
                   ))}

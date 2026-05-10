@@ -1,5 +1,5 @@
 import { Card } from "./ui";
-import { latencyBars } from "../data/fixtures";
+import { latencyBars as fallbackBars, type LatencyBar } from "../data/fixtures";
 import { Rocket } from "lucide-react";
 
 const toneCls = {
@@ -8,7 +8,14 @@ const toneCls = {
   error: "bg-destructive",
 };
 
-export default function LatencyChart() {
+export default function LatencyChart({
+  bars,
+  deployLabel,
+}: {
+  bars?: LatencyBar[];
+  deployLabel?: string;
+} = {}) {
+  const latencyBars = bars && bars.length > 0 ? bars : fallbackBars;
   return (
     <Card className="flex flex-col gap-3.5 p-[18px]">
       <div className="flex items-center justify-between">
@@ -45,7 +52,7 @@ export default function LatencyChart() {
         <span className="text-muted-fg">-60m</span>
         <span className="flex items-center gap-1 font-medium text-primary">
           <Rocket className="size-3" />
-          deploy 38m ago · servicetracker @ d4f8a2b
+          {deployLabel || "deploy 38m ago · servicetracker @ d4f8a2b"}
         </span>
         <span className="font-semibold text-fg">now</span>
       </div>

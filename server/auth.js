@@ -5,6 +5,8 @@ const { log } = require("../src/util");
 const { loginRateLimiter, apiRateLimiter } = require("./rate-limiter");
 const { Settings } = require("./settings");
 const dayjs = require("dayjs");
+const jwt = require("jsonwebtoken");
+const { shake256, SHAKE256_LENGTH } = require("./util-server");
 
 /**
  * Login to web app
@@ -228,8 +230,34 @@ exports.restApiAuth = async function (req, res, next) {
     }
 
     const authHeader = req.headers["authorization"];
-    if (!authHeader || !authHeader.startsWith("Basic ")) {
-        return res.status(401).json({ ok: false, msg: "Missing or invalid Authorization header. Use Basic auth." });
+    if (!authHeader) {
+        return res.status(401).json({ ok: false, msg: "Missing Authorization header. Use Basic auth or Bearer JWT." });
+    }
+
+    // Bearer JWT — same token Pulse / Vue receive after the OIDC callback. Verified
+    // against the server's jwtSecret with the same h-check as socket.io's loginByToken.
+    if (authHeader.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        try {
+            const { UptimeKumaServer } = require("./uptime-kuma-server");
+            const decoded = jwt.verify(token, UptimeKumaServer.getInstance().jwtSecret);
+            const user = await R.findOne("user", " username = ? AND active = 1 ", [decoded.username]);
+            if (!user) {
+                return res.status(401).json({ ok: false, msg: "Invalid token: user not found." });
+            }
+            if (decoded.h !== shake256(user.password, SHAKE256_LENGTH)) {
+                return res.status(401).json({ ok: false, msg: "Invalid token: password changed." });
+            }
+            req.userID = user.id;
+            return next();
+        } catch (e) {
+            log.warn("rest-api-auth", "JWT verification failed: " + e.message);
+            return res.status(401).json({ ok: false, msg: "Invalid JWT." });
+        }
+    }
+
+    if (!authHeader.startsWith("Basic ")) {
+        return res.status(401).json({ ok: false, msg: "Authorization must be Basic or Bearer." });
     }
 
     let decoded;

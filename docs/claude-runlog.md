@@ -164,3 +164,20 @@
   - Legacy `/` still returns 302 → Vue UI continues to work.
   - Browser test: `/v2/` redirects to `/v2/login`, login page renders with "Sign in with Microsoft" CTA pointing at `/auth/oidc/login?return=%2Fv2%2F`.
 - **Status:** Live in production. Ready for end-to-end OIDC sign-in test against Entra ID.
+
+### Step 8: Real data wired into all 4 Pulse pages
+- **Goal:** Replace mock fixtures with live `/api/v1/*` calls so every Pulse screen shows real Uptime Kuma state.
+- **Auth fix:** REST `restApiAuth` only accepted HTTP Basic; the OIDC JWT couldn't reach `/api/v1`. Added Bearer-JWT path in `server/auth.js` mirroring socket.io's `loginByToken` (verifies signature with `jwtSecret`, looks up user by `decoded.username`, checks `decoded.h === shake256(user.password, …)`). Same token now works for both REST and socket — required minor `require("./util-server")` fix.
+- **API client:** `pulse-ui/src/lib/api.ts` exposes typed wrappers for `fetchMonitors`, `fetchMonitor`, `fetchBeats`, `fetchChart`, `fetchImportantHeartbeats`, `fetchStatusPages`, `fetchStatusPage`. `apiFetch()` adds `Authorization: Bearer <jwt>` and bounces to login on 401.
+- **Hooks:**
+  - `useFleet` — list + last-24h beats for top N monitors; derives status, uptime%, average latency, sampled 30-cell beat strip per monitor; rolls up to fleet health, up/down/degraded counts, fleet p95.
+  - `useMonitor(id)` — full detail bundle: monitor config + 30-day beats + minute-bucket chart + important heartbeats; computes uptime%, MTTR, p50/p95/p99, 60-bar latency chart with tone, 30-day daily strip, recent incidents (paired down→up).
+  - `useIncidents` — aggregates important-heartbeats across monitors; pairs down→up into resolved incidents; surfaces still-open ones as active; builds 7-day per-monitor swimlane; computes opened-7d count, MTTR, MTBF.
+  - `useStatusPages(slug?)` — list + active status page; gracefully handles empty list with composer empty-state hint.
+- **Pages updated:**
+  - `Overview.tsx` — real KPI strip ("99.99% averaged across 24 monitors", "0 of 24 all healthy", real p95 across last-24h beats); service grid lists real fleet (52 monitors, top 24 fetched); active-incident banner only renders when something's actually down.
+  - `MonitorDetail.tsx` — driven by `:slug` route param as numeric ID; loading/error states; real status pill, latency chart from chart endpoint, real 30-day strip from beats, real recent incidents with actual ping failure messages; cert/headers/DNS card shows placeholder note (those endpoints don't exist in v1 yet).
+  - `Incidents.tsx` — real "all clear" or active count, real swimlane (12 monitors with activity, 7 day cells each), real resolved list ("3E NDT La Porte Firewall (UDM Pro Max) is offline | Site: 3E NDT La Porte" etc.), live MTTR/MTBF.
+  - `StatusPageComposer.tsx` — wired to `useStatusPages` + `useFleet` + `useIncidents`. The list is currently empty in production, so the editor shows a friendly "create one in legacy UI" hint while the preview pane renders against the real fleet (7 of 7 operational banner, real service tiles incl. one Degraded, real past-incident entries).
+  - Components made data-driven via props with sensible fallbacks: `LatencyChart`, `ThirtyDayStrip`, `Swimlane`, `StatusPagePreview`.
+- **Deploy:** rsync → `docker compose build && up -d`. Server log confirms `Pulse UI mounted at /v2 from pulse-ui/dist`. All four routes verified in browser against live data.
