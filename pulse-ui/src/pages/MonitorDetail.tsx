@@ -16,9 +16,33 @@ import { Topbar, Crumb, CrumbSep } from "../components/Topbar";
 import { Card, IconButton, Tag, StatLabel } from "../components/ui";
 import LatencyChart from "../components/LatencyChart";
 import ThirtyDayStrip from "../components/ThirtyDayStrip";
+import ConnectWiseMonitorConfig from "../components/ConnectWiseMonitorConfig";
 import { useMonitor, fmtMttr, type MonitorView } from "../hooks/useMonitor";
 
 const tabs = ["Overview", "Latency", "Errors", "Headers", "Certificate", "Configuration"];
+
+// Helpers extract the per-monitor CW state from the loaded MonitorView. The
+// /monitors/:id payload already returns cwConfig (parsed) and notificationIDList.
+function cwAttached(v: MonitorView): boolean {
+  const list = (v.monitor as unknown as { notificationIDList?: Record<string, boolean> }).notificationIDList ?? {};
+  return Object.values(list).some((b) => b === true);
+}
+
+function cwInitialConfig(v: MonitorView): {
+  boardId?: number;
+  downStatusId?: number;
+  upStatusId?: number;
+  activeTicketId?: number;
+} | null {
+  const cw = (v.monitor as unknown as { cwConfig?: Record<string, number> | null }).cwConfig;
+  if (!cw) return null;
+  return {
+    boardId: cw.boardId,
+    downStatusId: cw.downStatusId,
+    upStatusId: cw.upStatusId,
+    activeTicketId: cw.activeTicketId,
+  };
+}
 
 const certRows: [string, string, "default" | "success"][] = [
   ["Issued", "—", "default"],
@@ -231,6 +255,12 @@ export default function MonitorDetail() {
             days={v.thirtyDay}
             uptimeLabel={`${v.uptimePct}% over 30 days`}
             summary={`${v.incidents.filter((i) => i.status === "RESOLVED").length} incidents · ${v.incidents.filter((i) => i.status === "MAINT").length} maintenance`}
+          />
+
+          <ConnectWiseMonitorConfig
+            monitorId={m.id}
+            initialAttached={cwAttached(v)}
+            initialConfig={cwInitialConfig(v)}
           />
 
           {/* Bottom row: incidents + cert */}
