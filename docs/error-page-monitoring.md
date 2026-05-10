@@ -130,12 +130,34 @@ These apps have no `UseExceptionHandler` and no Razor error page — the framewo
 - people-directory.Api (`~/code/3eprojects/people-app/backend/src/PeopleDirectory.Api`)
 - user-management.Web (`/opt/services/user-management/src/Web` on VM 301)
 
-### Backlog (different stacks, apply equivalent fix)
-- **imtec-sql-ip** (Flask) — disable debug, ensure 500-handler returns proper status.
-- **infodex** (Node) — confirm Express error handler returns 5xx.
-- **media-toolkit, aspendora-console, ticket-auditor, homepro** (Python/FastAPI) — confirm framework error handler.
-- **n8n** — fork has `Dockerfile.aspendora`; only fix if a real failure mode emerges.
-- **callqa, defiant-editor, defiant-mgmt** — couldn't locate Program.cs locally or on server; need to investigate stack.
+### Audited and confirmed not needed (non-.NET sweep)
+
+For Python / Node / Next.js apps, the framework's default error response is already a real 5xx — the silent-200 problem was specific to .NET's path-based `UseExceptionHandler` re-executing into a Razor page that defaults to 200. Audit findings:
+
+| App | Stack | Server | Status on error |
+|---|---|---|---|
+| **imtec-sql-ip** | Flask | gunicorn (`app:app`) | 500 with default Flask error template. The `app.run(debug=True)` line at the bottom is dead code — only runs when invoked as `__main__`, which gunicorn doesn't do. |
+| **homepro** | Flask | gunicorn | 500 default. No debug. |
+| **callqa.backend** | FastAPI | uvicorn | 500 JSON `{"detail":"Internal Server Error"}` |
+| **media-toolkit** | FastAPI | uvicorn | same |
+| **aspendora-console.backend** | FastAPI | uvicorn | same |
+| **ticket-auditor** | FastAPI | uvicorn | same |
+| **infodex** | Next.js 15 | next start | 500 with built-in error page |
+| **defiant-mgmt** | Node Express | `node server.js` | Has explicit `app.use((err,req,res,next) => res.status(500).send(...))` |
+| **defiant-editor** | static editor (tarball) | nginx | 502 from upstream container, not an in-app concern |
+| **n8n** | Node fork | n8n binary | upstream returns 500 on errors |
+
+Why the keyword monitors still catch failures here even without a source-fix: the monitors' `accepted_statuscodes` is `["200-299", "302"]` (plus `403` for homepro). A 500 from any of these apps falls outside that range → monitor goes DOWN regardless of body content.
+
+The path-based `/Error` re-execution trap that bit servicetracker (and the three other .NET apps we patched) is a Razor-specific failure mode; no equivalent exists in these stacks.
+
+### Phase 2 status: complete
+
+- 4 .NET apps fixed in source.
+- 4 .NET apps audited as already-correct (no path-based handler).
+- 10 non-.NET apps audited as already-correct (framework defaults).
+
+The original silent-failure scenario is comprehensively closed.
 
 ### Verification ritual
 
