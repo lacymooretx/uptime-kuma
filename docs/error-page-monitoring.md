@@ -86,15 +86,55 @@ Source: `~/code/vultr-proxmox/services/` (30 docker-compose services on `docker.
 ## Skipped (workers / no UI)
 `clerkchat-cw-sync`, `quarantine-ticket`, `defiant2` (caddy proxy).
 
-## Phase 2 — Source-fix backlog
-Apps where we own source and could return a real 5xx instead of a 200 error page (so even plain HTTP monitors would catch the failure):
+## Phase 2 — Source-fix progress
 
-- **servicetracker** (the original triggering example) — ASP.NET Core. Add an exception filter or register the health-checks middleware on `/`. Source: `~/code/3eprojects/service-app`.
-- **callqa, controlr, aspendorachat, emailbridge, file-share-blazor, people-directory, user-management, defiant-editor, defiant-mgmt** — same pattern across the ASP.NET / Blazor fleet.
+Goal: when an app errors, return a real **5xx HTTP status code** so plain HTTP monitors catch it too — keyword monitoring becomes belt-and-suspenders, not the sole defense.
+
+### Root cause we found
+
+The default ASP.NET Core / Blazor template's `Error.razor` page renders successfully with **HTTP 200** when `UseExceptionHandler("/Error")` re-executes the pipeline. Two compounding issues:
+
+1. Razor pages don't auto-set the response status code, so the body says "An error occurred" but the framing is 200 OK.
+2. When `/Error` is gated by `RequireAuthorization`, the re-execution gets caught by auth and redirects to Microsoft sign-in (302) — losing the original error context entirely.
+
+### Pattern that fixes it
+
+Replace the path-based exception handler with a delegate-based one that writes the response inline, bypassing routing:
+
+```csharp
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    ExceptionHandler = async context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "text/html; charset=utf-8";
+        var requestId = System.Diagnostics.Activity.Current?.Id ?? context.TraceIdentifier;
+        await context.Response.WriteAsync("<html>… An error occurred … " + requestId + "</html>");
+    },
+    AllowStatusCode404Response = true,
+});
+```
+
+The exception is still logged by the framework before this delegate runs, so observability isn't affected.
+
+### Done
+- ✅ **servicetracker** (`~/code/3eprojects/service-app/web-app/ServiceTracker/Program.cs`) — delegate exception handler installed. Keyword monitor #78 still UP after deploy. The original triggering scenario is now caught by both keyword *and* plain HTTP monitors.
+
+### Backlog (apply the same pattern)
+- **callqa, controlr, aspendorachat, emailbridge, file-share-blazor, people-directory, user-management, defiant-editor, defiant-mgmt** — same ASP.NET / Blazor pattern.
 - **imtec-sql-ip** (Flask) — disable debug, add a 500-handler that returns proper status.
 - **infodex** (Node) — confirm Express error handler returns 5xx.
 - **media-toolkit, aspendora-console, ticket-auditor, homepro** (Python/FastAPI) — confirm framework error handler.
-- **n8n** — fork has `Dockerfile.aspendora`; could add custom error middleware.
+- **n8n** — fork has `Dockerfile.aspendora`; could add custom error middleware if needed.
+
+### Verification ritual
+
+After applying the fix to any app:
+1. Build + redeploy the container.
+2. Confirm the happy path still works (`curl -I` → 200 or 302).
+3. Induce a deliberate fault (e.g. `docker compose stop <db>` momentarily) and confirm `/` returns **500**, not 200.
+4. Watch the corresponding keyword monitor on https://uptime.aspendora.com/v2/monitors flip to DOWN.
+5. Restore.
 
 ## Relevant context
 - **Uptime Kuma REST API:** `/api/v1` — bootstrap key in `UPTIME_KUMA_BOOTSTRAP_API_KEY` (commit 28d4a586). Keyword monitor type is supported natively. JWT-bearer auth was added in commit `f71027ea` so OIDC tokens also work.
