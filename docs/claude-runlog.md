@@ -181,3 +181,17 @@
   - `StatusPageComposer.tsx` — wired to `useStatusPages` + `useFleet` + `useIncidents`. The list is currently empty in production, so the editor shows a friendly "create one in legacy UI" hint while the preview pane renders against the real fleet (7 of 7 operational banner, real service tiles incl. one Degraded, real past-incident entries).
   - Components made data-driven via props with sensible fallbacks: `LatencyChart`, `ThirtyDayStrip`, `Swimlane`, `StatusPagePreview`.
 - **Deploy:** rsync → `docker compose build && up -d`. Server log confirms `Pulse UI mounted at /v2 from pulse-ui/dist`. All four routes verified in browser against live data.
+
+### Step 9: Six new pages designed + wired (2026-05-10)
+- **Goal:** Fill out every nav item that previously dead-ended.
+- **New pages (all under `pulse-ui/src/pages/`):**
+  - `MonitorsList.tsx` — dense table view with search + status filter chips + sort. `/monitors` is no longer a forced redirect; route reused. Real fleet data via the existing `useFleet` hook.
+  - `Maintenance.tsx` — stats strip (Active / Scheduled / Recurring / Total 30d) + clean empty state with CTA. Data via new `fetchMaintenance()`.
+  - `Notifications.tsx` — Configured channel list + "Add a channel" 6-card grid (Email/Slack/Discord/Webhook/SMS/Telegram). Empty state when no channels exist. Data via new `fetchNotifications()`.
+  - `Settings.tsx` — sub-nav (General / API Keys / Security / Branding / Data) with content driven by `fetchSettings()` and `fetchApiKeys()`.
+  - `Team.tsx` — current-on-call hero, rotation timeline (next 5 shifts), members table. Concept data with a clear disclosure note since `/api/v1/team` doesn't exist yet.
+  - `Integrations.tsx` — categorized grid of integration cards (Connected / Available / Coming soon). ConnectWise + Entra ID surface as "Connected" reflecting actual env config; rest are concept cards.
+- **API client extensions** in `lib/api.ts`: `fetchMaintenance`, `fetchNotifications`, `fetchApiKeys`, `fetchTags`, `fetchSettings`. Maintenance endpoint returns `{[id]: …}` (object, not array) — wrapper normalizes via `Object.values`.
+- **App.tsx:** added `/monitors`, `/maintenance`, `/notifications`, `/integrations`, `/team`, `/settings` routes.
+- **Build/deploy:** vite build (375 KB / 103 KB gzip), rsync, docker compose build + up. First deploy hit a `f.filter is not a function` runtime error because the maintenance endpoint returns an object — fixed by normalizing in the API client wrapper.
+- **Verified live (in browser):** all 6 new routes plus the original 4 render against real data. The classic Vue UI at `/` is unaffected.

@@ -114,3 +114,75 @@ export async function fetchStatusPage(slug: string): Promise<ApiStatusPage> {
   const env = await apiFetch<Envelope<ApiStatusPage>>(`/api/v1/status-pages/${slug}`);
   return env.data;
 }
+
+export interface ApiMaintenance {
+  id: number;
+  title: string;
+  description?: string;
+  strategy: string;
+  active: boolean;
+  intervalDay?: number;
+  dateRange?: string[];
+  startDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  weekdays?: number[];
+  daysOfMonth?: number[];
+  timezone?: string;
+}
+
+export async function fetchMaintenance(): Promise<ApiMaintenance[]> {
+  // Server returns {[id]: ApiMaintenance} keyed by id (not an array). Normalize.
+  const env = await apiFetch<Envelope<Record<string, ApiMaintenance> | ApiMaintenance[]>>(
+    "/api/v1/maintenance",
+  );
+  return Array.isArray(env.data) ? env.data : Object.values(env.data);
+}
+
+export interface ApiNotification {
+  id: number;
+  name: string;
+  type: string;
+  active: boolean;
+  isDefault: boolean;
+  config?: Record<string, unknown>;
+}
+
+export async function fetchNotifications(): Promise<ApiNotification[]> {
+  const env = await apiFetch<Envelope<ApiNotification[]>>("/api/v1/notifications");
+  return env.data;
+}
+
+export interface ApiKey {
+  id: number;
+  name: string;
+  userID: number;
+  createdDate: string;
+  active: boolean;
+  expires: string;
+  status: "active" | "expired" | "inactive";
+}
+
+export async function fetchApiKeys(): Promise<ApiKey[]> {
+  const env = await apiFetch<Envelope<ApiKey[]>>("/api/v1/api-keys");
+  return env.data;
+}
+
+export async function fetchTags(): Promise<ApiTag[]> {
+  const env = await apiFetch<Envelope<ApiTag[]>>("/api/v1/tags");
+  return env.data;
+}
+
+export interface ApiSettings {
+  serverTimezone?: string;
+  keepDataPeriodDays?: number;
+  customTitle?: string;
+  customLogo?: string;
+  [key: string]: unknown;
+}
+
+export async function fetchSettings(): Promise<ApiSettings> {
+  const env = await apiFetch<Envelope<ApiSettings>>("/api/v1/settings");
+  return env.data;
+}
