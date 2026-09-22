@@ -10,35 +10,40 @@ import {
 } from "lucide-react";
 import { Tag, Avatar } from "./ui";
 import BeatStrip from "./BeatStrip";
-import type { Incident, BeatStatus } from "../data/fixtures";
+import type { Incident, Monitor } from "../data/fixtures";
 
-const sampleBeats: BeatStatus[] = [
-  ...Array.from({ length: 25 }, () => "up" as BeatStatus),
-  "warn",
-  "up",
-  "down",
-  "down",
-  "down",
-];
-
-export function ActiveIncidentBanner({ withBeats = true }: { withBeats?: boolean }) {
+// Driven by a real active incident (from useIncidents) plus the matching fleet
+// monitor (from useFleet) for url / tags / beats. No fabricated values.
+export function ActiveIncidentBanner({
+  incident,
+  monitor,
+  withBeats = true,
+}: {
+  incident: Incident;
+  monitor?: Monitor;
+  withBeats?: boolean;
+}) {
+  const title = monitor?.url || incident.monitor;
+  const tags = monitor?.tags ?? [];
   return (
     <div className="flex overflow-hidden rounded-2xl border border-destructive bg-card">
       <div className="flex w-[100px] shrink-0 flex-col items-center justify-center gap-2 bg-destructive px-4 py-5 text-white">
         <AlertOctagon className="size-7" strokeWidth={2.2} />
         <span className="font-mono text-[11px] font-bold tracking-[0.15em]">DOWN</span>
-        <span className="font-mono text-sm font-semibold">7m 22s</span>
+        <span className="font-mono text-sm font-semibold">{incident.startedAgo}</span>
       </div>
       <div className="flex-1 px-[18px] py-[18px] flex flex-col gap-2.5 min-w-0">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="font-mono text-base font-semibold text-fg">service-log.3endt.com</span>
-          <Tag tone="neutral">servicetracker</Tag>
-          <Tag tone="neutral">prod</Tag>
-          <Tag tone="info">asp.net</Tag>
+          <span className="font-mono text-base font-semibold text-fg">{incident.monitor}</span>
+          {title !== incident.monitor && (
+            <span className="truncate font-mono text-[12px] text-muted-fg">{title}</span>
+          )}
+          {tags.map((t) => (
+            <Tag key={t} tone="neutral">{t}</Tag>
+          ))}
         </div>
         <div className="font-mono text-[12px] leading-relaxed text-muted-fg">
-          ❯ HTTP 500 · An error occurred while processing your request. · expected: 200, got: 500 ·
-          3 of last 5 checks failed
+          ❯ {incident.message}
         </div>
         <div className="flex flex-wrap items-center gap-2 mt-1">
           <button className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 font-mono text-xs font-semibold text-primary-fg hover:opacity-90">
@@ -53,16 +58,15 @@ export function ActiveIncidentBanner({ withBeats = true }: { withBeats?: boolean
           <button className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 font-mono text-xs text-secondary-fg hover:bg-secondary/80">
             <Megaphone className="size-3.5" /> Post to status page
           </button>
-          <span className="ml-auto text-[12px] text-muted-fg">page Lacy → Riley in 14m</span>
         </div>
       </div>
-      {withBeats && (
+      {withBeats && monitor && monitor.beats.length > 0 && (
         <div className="hidden w-[200px] shrink-0 flex-col gap-1.5 bg-secondary px-4 py-[18px] md:flex">
           <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-fg">
-            Beats · last 30
+            Beats · last {monitor.beats.length}
           </div>
-          <BeatStrip beats={sampleBeats} height={24} />
-          <div className="font-mono text-[11px] text-muted-fg">avg 142ms · errors 11%</div>
+          <BeatStrip beats={monitor.beats} height={24} />
+          <div className="font-mono text-[11px] text-muted-fg">avg {monitor.latencyMs}ms</div>
         </div>
       )}
     </div>
@@ -91,8 +95,8 @@ export function ExpandedIncidentCard({ incident }: { incident: Incident }) {
       <div className="flex-1 px-[18px] py-3.5 flex flex-col gap-2 min-w-0">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-[15px] font-semibold text-fg">{incident.monitor}</span>
-          <Tag tone="info">asp.net</Tag>
-          <Tag tone={isAcked ? "warning" : "neutral"}>{isAcked ? "acked" : "prod"}</Tag>
+          <Tag tone={isDown ? "error" : "warning"}>{incident.severity}</Tag>
+          {isAcked && <Tag tone="warning">acked</Tag>}
         </div>
         <div className="font-mono text-[12px] leading-relaxed text-muted-fg">{incident.message}</div>
         <div className="flex flex-wrap items-center gap-2 mt-0.5">
@@ -116,7 +120,7 @@ export function ExpandedIncidentCard({ incident }: { incident: Incident }) {
           )}
           <button className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 font-mono text-xs text-secondary-fg hover:bg-secondary/80">
             {isDown ? <PhoneIncoming className="size-3.5" /> : <Telescope className="size-3.5" />}
-            {isDown ? "Escalate to Riley" : "Open in detail"}
+            {isDown ? "Escalate" : "Open in detail"}
           </button>
           {isDown ? (
             <button className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 font-mono text-xs text-secondary-fg hover:bg-secondary/80">
@@ -131,10 +135,7 @@ export function ExpandedIncidentCard({ incident }: { incident: Incident }) {
                 <span className="font-mono font-medium text-fg">{incident.owner.name}</span>
               </>
             ) : (
-              <>
-                <span className="text-muted-fg">unassigned · escalates in</span>
-                <span className="font-mono font-semibold text-warning-fg">14m</span>
-              </>
+              <span className="text-muted-fg">unassigned</span>
             )}
           </div>
         </div>

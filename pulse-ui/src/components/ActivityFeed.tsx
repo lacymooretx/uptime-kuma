@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowUp, TrendingUp, Wrench, Plus, Megaphone, ArrowRight } from "lucide-react";
-import { activity, type EventType } from "../data/fixtures";
+import { ArrowDown, ArrowUp, TrendingUp, Wrench, Plus, Megaphone, ArrowRight, Loader2 } from "lucide-react";
+import type { ActivityEvent, EventType } from "../data/fixtures";
 import { Card } from "./ui";
 
 const iconConfig: Record<EventType, { icon: typeof ArrowDown; bg: string; fg: string }> = {
@@ -11,7 +11,13 @@ const iconConfig: Record<EventType, { icon: typeof ArrowDown; bg: string; fg: st
   published: { icon: Megaphone, bg: "bg-success-bg", fg: "text-success-fg" },
 };
 
-export default function ActivityFeed() {
+export default function ActivityFeed({
+  events,
+  loading = false,
+}: {
+  events: ActivityEvent[];
+  loading?: boolean;
+}) {
   return (
     <Card className="w-[380px] shrink-0 overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-[18px] py-3.5">
@@ -20,15 +26,24 @@ export default function ActivityFeed() {
           view all <ArrowRight className="size-3" />
         </button>
       </div>
+      {loading ? (
+        <div className="flex items-center gap-2 px-[18px] py-6 font-mono text-[12px] text-muted-fg">
+          <Loader2 className="size-3.5 animate-spin" /> Loading recent activity…
+        </div>
+      ) : events.length === 0 ? (
+        <div className="px-[18px] py-6 text-center font-mono text-[12px] text-muted-fg">
+          No state changes recently — all quiet.
+        </div>
+      ) : (
       <ul>
-        {activity.map((e, i) => {
+        {events.map((e, i) => {
           const cfg = iconConfig[e.type];
           const Icon = cfg.icon;
           return (
             <li
               key={e.id}
               className={`flex gap-3 px-[18px] py-3 ${
-                i < activity.length - 1 ? "border-b border-border" : ""
+                i < events.length - 1 ? "border-b border-border" : ""
               }`}
             >
               <span className={`flex size-6 shrink-0 items-center justify-center rounded-full ${cfg.bg}`}>
@@ -45,6 +60,7 @@ export default function ActivityFeed() {
           );
         })}
       </ul>
+      )}
     </Card>
   );
 }

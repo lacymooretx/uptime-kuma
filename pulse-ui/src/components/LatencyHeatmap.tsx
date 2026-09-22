@@ -1,5 +1,5 @@
 import { Card } from "./ui";
-import { heatmap } from "../data/fixtures";
+import type { HeatRow } from "../data/fixtures";
 
 const colorFor = (rowIndex: number, intensity: number) => {
   // Top row = slowest = red. Middle = warning. Bottom = success.
@@ -8,7 +8,8 @@ const colorFor = (rowIndex: number, intensity: number) => {
   return `rgba(182, 255, 206, ${0.2 + intensity * 0.55})`;
 };
 
-export default function LatencyHeatmap() {
+export default function LatencyHeatmap({ heatmap }: { heatmap: HeatRow[] }) {
+  const hasData = heatmap.some((row) => row.values.some((v) => v > 0));
   return (
     <Card className="p-[18px] flex flex-col gap-3.5">
       <div className="flex items-center justify-between">
@@ -31,26 +32,32 @@ export default function LatencyHeatmap() {
         </div>
       </div>
 
-      <div className="flex gap-2.5">
-        <div className="flex flex-col justify-between font-mono text-[10px] text-muted-fg" style={{ height: 130 }}>
-          {heatmap.map((row) => (
-            <div key={row.label}>{row.label}</div>
-          ))}
+      {hasData ? (
+        <div className="flex gap-2.5">
+          <div className="flex flex-col justify-between font-mono text-[10px] text-muted-fg" style={{ height: 130 }}>
+            {heatmap.map((row) => (
+              <div key={row.label}>{row.label}</div>
+            ))}
+          </div>
+          <div className="flex flex-1 flex-col gap-[2px]">
+            {heatmap.map((row, ri) => (
+              <div key={row.label} className="flex h-6 gap-[2px]">
+                {row.values.map((v, ci) => (
+                  <span
+                    key={ci}
+                    className="flex-1 rounded-[1px]"
+                    style={{ background: colorFor(ri, v) }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-1 flex-col gap-[2px]">
-          {heatmap.map((row, ri) => (
-            <div key={row.label} className="flex h-6 gap-[2px]">
-              {row.values.map((v, ci) => (
-                <span
-                  key={ci}
-                  className="flex-1 rounded-[1px]"
-                  style={{ background: colorFor(ri, v) }}
-                />
-              ))}
-            </div>
-          ))}
+      ) : (
+        <div className="flex h-[130px] items-center justify-center rounded-md border border-dashed border-border text-[12px] text-muted-fg">
+          No latency samples in the last 24h yet.
         </div>
-      </div>
+      )}
 
       <div className="flex justify-between pl-7 font-mono text-[10px] text-muted-fg">
         <span>24h ago</span>

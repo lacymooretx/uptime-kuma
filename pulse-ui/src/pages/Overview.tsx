@@ -11,18 +11,35 @@ import {
   PhoneIncoming,
   Loader2,
 } from "lucide-react";
+import { useState } from "react";
+import type { ReactNode } from "react";
 import { Topbar, Crumb, CrumbSep, LivePill } from "../components/Topbar";
 import { KpiCard, Sparkline } from "../components/KpiCard";
-import { IconButton, Avatar, Tag } from "../components/ui";
+import { IconButton } from "../components/ui";
 import ServiceTile from "../components/ServiceTile";
 import LatencyHeatmap from "../components/LatencyHeatmap";
 import ActivityFeed from "../components/ActivityFeed";
 import { ActiveIncidentBanner } from "../components/IncidentTriage";
-import { fleetStats as fallbackStats, monitors as fallbackMonitors } from "../data/fixtures";
+import { fleetStats as fallbackStats, monitors as fallbackMonitors, type Monitor } from "../data/fixtures";
 import { useFleet } from "../hooks/useFleet";
+import { useActivity } from "../hooks/useActivity";
+import { useIncidents } from "../hooks/useIncidents";
 
-const fleetSpark = [0.3, 0.5, 0.45, 0.6, 0.7, 0.65, 0.75, 0.7, 0.8, 0.75, 0.4, 0.2, 0.55, 0.7, 0.75, 0.8, 0.85];
-const latencySpark = [0.3, 0.4, 0.4, 0.45, 0.55, 0.5, 0.6, 0.55, 0.65, 0.7, 0.6, 0.78, 0.85, 0.95, 0.9, 0.92, 1];
+// Bucket monitors by their first Kuma tag; untagged fall into "Ungrouped".
+function groupByTag(monitors: Monitor[]): { tag: string; monitors: Monitor[] }[] {
+  const groups = new Map<string, Monitor[]>();
+  for (const m of monitors) {
+    const tag = m.tags && m.tags.length > 0 ? m.tags[0] : "Ungrouped";
+    (groups.get(tag) ?? groups.set(tag, []).get(tag)!).push(m);
+  }
+  return [...groups.entries()]
+    .map(([tag, ms]) => ({ tag, monitors: ms }))
+    .sort((a, b) => {
+      if (a.tag === "Ungrouped") return 1; // Ungrouped last
+      if (b.tag === "Ungrouped") return -1;
+      return b.monitors.length - a.monitors.length;
+    });
+}
 
 const RangeTabs = () => (
   <div className="inline-flex items-center gap-0.5 rounded-full bg-secondary p-1">
@@ -42,14 +59,64 @@ const RangeTabs = () => (
   </div>
 );
 
+type StatusFilter = "all" | "up" | "degraded" | "down";
+
+function FilterChip({
+  active,
+  tone,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  tone: "neutral" | "success" | "warning" | "error";
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const inactive = {
+    neutral: "bg-secondary text-secondary-fg hover:bg-secondary/80",
+    success: "bg-success-bg/60 text-success-fg hover:bg-success-bg",
+    warning: "bg-warning-bg/60 text-warning-fg hover:bg-warning-bg",
+    error: "bg-error-bg/60 text-error-fg hover:bg-error-bg",
+  }[tone];
+  const activeCls = {
+    neutral: "bg-fg text-bg ring-fg/40",
+    success: "bg-success-bg text-success-fg ring-success-fg/40",
+    warning: "bg-warning-bg text-warning-fg ring-warning-fg/40",
+    error: "bg-error-bg text-error-fg ring-error-fg/40",
+  }[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={[
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] transition",
+        active ? `${activeCls} ring-2` : inactive,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Overview() {
   // In dev (`npm run dev` standalone) the API isn't reachable — fall back to fixtures
   // so the design still renders. In production we always hit /api/v1.
   const live = useFleet();
+  const activity = useActivity();
+  const incidents = useIncidents();
   const isDev = import.meta.env.DEV;
   const useFallback = isDev && live.kind !== "ready";
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  const monitors = live.kind === "ready" ? live.data.monitors : useFallback ? fallbackMonitors : [];
+  const healthSpark = live.kind === "ready" ? live.data.healthSpark : [];
+  const latencySpark = live.kind === "ready" ? live.data.latencySpark : [];
+
+  const allMonitors = live.kind === "ready" ? live.data.monitors : useFallback ? fallbackMonitors : [];
+  const monitors =
+    statusFilter === "all"
+      ? allMonitors
+      : allMonitors.filter((m) => m.status === statusFilter);
   const stats =
     live.kind === "ready"
       ? {
@@ -59,10 +126,19 @@ export default function Overview() {
           total: live.data.total,
           p95: live.data.p95,
           p95Delta: 0,
-          oncall: fallbackStats.oncall,
         }
       : fallbackStats;
-  const hasIncident = monitors.some((m) => m.status === "down");
+  const groups = groupByTag(monitors);
+  // Prefer the real incident record (has failure message + downtime); fall back
+  // to the fleet's own down signal so the banner still shows during the brief
+  // window before important-heartbeats load.
+  const activeIncident =
+    incidents.kind === "ready" && incidents.data.active.length > 0
+      ? incidents.data.active[0]
+      : null;
+  const bannerMonitor = activeIncident
+    ? allMonitors.find((m) => m.name === activeIncident.monitor)
+    : undefined;
 
   return (
     <>
@@ -113,7 +189,7 @@ export default function Overview() {
                   </span>
                 ) : (
                   <>
-                    Real-time health across {stats.total} monitors · {monitors.length} fetched
+                    Real-time health across {stats.total} monitors · {allMonitors.length} fetched
                   </>
                 )}
               </div>
@@ -131,11 +207,11 @@ export default function Overview() {
               delta={
                 <span className="inline-flex items-center gap-1.5">
                   <TrendingDown className="size-3.5 text-error-fg" />
-                  averaged across {monitors.length} monitors
+                  averaged across {allMonitors.length} monitors
                 </span>
               }
               deltaTone="muted"
-              spark={<Sparkline values={fleetSpark} tone="success" />}
+              spark={healthSpark.length > 0 ? <Sparkline values={healthSpark} tone="success" /> : undefined}
             />
             <KpiCard
               label="Down now"
@@ -148,10 +224,10 @@ export default function Overview() {
                 )
               }
               value={stats.down}
-              unit={<span>of {monitors.length}</span>}
+              unit={<span>of {allMonitors.length}</span>}
             >
               <div className="font-mono text-[11px] text-muted-fg truncate">
-                {monitors
+                {allMonitors
                   .filter((m) => m.status === "down")
                   .map((m) => m.name)
                   .join(" · ") || "all healthy"}
@@ -173,29 +249,27 @@ export default function Overview() {
                 </span>
               }
               deltaTone="muted"
-              spark={<Sparkline values={latencySpark} tone="warning" />}
+              spark={latencySpark.length > 0 ? <Sparkline values={latencySpark} tone="warning" /> : undefined}
             />
             <KpiCard
               label="On-call"
               icon={<ShieldCheck className="size-4 text-info-fg" />}
             >
-              <div className="flex items-center gap-3 mt-1">
-                <Avatar initials={stats.oncall.initials} tone="info" size={44} />
-                <div>
-                  <div className="font-mono text-base font-semibold text-fg">
-                    {stats.oncall.name}
-                  </div>
-                  <div className="text-[12px] text-muted-fg">primary · 4h 12m left</div>
+              <div className="flex flex-col gap-1.5 mt-1">
+                <div className="font-mono text-[15px] font-semibold text-muted-fg">
+                  Rotation not configured
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5 text-[12px] text-muted-fg">
-                <PhoneIncoming className="size-3.5" />
-                escalates to Riley · {stats.oncall.escalateMinutes}m
+                <div className="flex items-center gap-1.5 text-[12px] text-muted-fg">
+                  <PhoneIncoming className="size-3.5" />
+                  Uptime Kuma has no on-call — set up a rotation in Team
+                </div>
               </div>
             </KpiCard>
           </div>
 
-          {hasIncident && <ActiveIncidentBanner />}
+          {activeIncident && (
+            <ActiveIncidentBanner incident={activeIncident} monitor={bannerMonitor} />
+          )}
 
           {/* Service health grid */}
           <div className="flex flex-col gap-3">
@@ -203,49 +277,83 @@ export default function Overview() {
               <div className="flex items-center gap-3">
                 <h2 className="font-mono text-base font-semibold">Service Health</h2>
                 <span className="text-[12px] text-muted-fg">
-                  12 services · grouped by environment
+                  {allMonitors.length} services · grouped by tag
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <Tag>All <span className="text-muted-fg ml-1">{stats.total}</span></Tag>
-                <Tag tone="success">
+                <FilterChip
+                  tone="neutral"
+                  active={statusFilter === "all"}
+                  onClick={() => setStatusFilter("all")}
+                >
+                  All <span className={statusFilter === "all" ? "ml-1 opacity-70" : "ml-1 text-muted-fg"}>{stats.total}</span>
+                </FilterChip>
+                <FilterChip
+                  tone="success"
+                  active={statusFilter === "up"}
+                  onClick={() => setStatusFilter(statusFilter === "up" ? "all" : "up")}
+                >
                   <span className="size-1.5 rounded-full bg-success-fg" />
                   Up <span className="ml-1 font-mono text-[11px]">{live.kind === "ready" ? live.data.up : 0}</span>
-                </Tag>
-                <Tag tone="warning">
+                </FilterChip>
+                <FilterChip
+                  tone="warning"
+                  active={statusFilter === "degraded"}
+                  onClick={() => setStatusFilter(statusFilter === "degraded" ? "all" : "degraded")}
+                >
                   <span className="size-1.5 rounded-full bg-warning-fg" />
                   Degraded <span className="ml-1 font-mono text-[11px]">{live.kind === "ready" ? live.data.degraded : 0}</span>
-                </Tag>
-                <Tag tone="error">
+                </FilterChip>
+                <FilterChip
+                  tone="error"
+                  active={statusFilter === "down"}
+                  onClick={() => setStatusFilter(statusFilter === "down" ? "all" : "down")}
+                >
                   <span className="size-1.5 rounded-full bg-destructive" />
                   Down <span className="ml-1 font-mono text-[11px]">{stats.down}</span>
-                </Tag>
+                </FilterChip>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] font-bold tracking-[0.15em] text-muted-fg">
-                PRODUCTION
-              </span>
-              <div className="h-px flex-1 bg-border" />
-              <span className="font-mono text-[11px] text-muted-fg">
-                8 services · 32 monitors
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {monitors.map((m) => (
-                <ServiceTile key={m.slug} monitor={m} />
-              ))}
-            </div>
+            {monitors.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-[13px] text-muted-fg">
+                {allMonitors.length === 0
+                  ? "No monitors to show yet."
+                  : (
+                    <>No monitors match the <span className="font-mono">{statusFilter}</span> filter.</>
+                  )}
+              </div>
+            ) : (
+              groups.map((g) => (
+                <div key={g.tag} className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-muted-fg">
+                      {g.tag}
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="font-mono text-[11px] text-muted-fg">
+                      {g.monitors.length} {g.monitors.length === 1 ? "monitor" : "monitors"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {g.monitors.map((m) => (
+                      <ServiceTile key={m.slug} monitor={m} />
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Heatmap + activity */}
           <div className="flex flex-col gap-4 lg:flex-row">
             <div className="min-w-0 flex-1">
-              <LatencyHeatmap />
+              <LatencyHeatmap heatmap={live.kind === "ready" ? live.data.heatmap : []} />
             </div>
-            <ActivityFeed />
+            <ActivityFeed
+              events={activity.kind === "ready" ? activity.events : []}
+              loading={activity.kind === "loading"}
+            />
           </div>
         </div>
       </div>

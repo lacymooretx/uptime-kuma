@@ -195,3 +195,32 @@
 - **App.tsx:** added `/monitors`, `/maintenance`, `/notifications`, `/integrations`, `/team`, `/settings` routes.
 - **Build/deploy:** vite build (375 KB / 103 KB gzip), rsync, docker compose build + up. First deploy hit a `f.filter is not a function` runtime error because the maintenance endpoint returns an object — fixed by normalizing in the API client wrapper.
 - **Verified live (in browser):** all 6 new routes plus the original 4 render against real data. The classic Vue UI at `/` is unaffected.
+
+### Incident: mass false-DOWN in Uptime Kuma (2026-07-01 ~08:46 CDT)
+- **Symptom:** Nearly all monitors showing DOWN; services were actually up.
+- **Root cause:** DNS failure *inside* the `uptime-kuma` container. Its `/etc/resolv.conf` used Docker's embedded resolver `127.0.0.11` with **NO EXTERNAL NAMESERVERS DEFINED** → every lookup returned `getaddrinfo EAI_AGAIN`. Host itself resolved fine (`nameserver <internal-ip>`). Trigger: VM runs systemd-resolved; when host resolv.conf presented only the loopback stub, Docker dropped it and left the container resolver with no upstreams. Running container held the broken state.
+- **Fix (durable):** Added explicit `dns: [<internal-ip>, 1.1.1.1]` to the `uptime-kuma` service in `/opt/services/uptime-kuma/docker-compose.yml` (backup: `docker-compose.yml.bak.<ts>`), then `docker compose up -d uptime-kuma` (Postgres untouched).
+- **Verification:** In-container `dns.lookup` for api.ui.com / control.aspendora.com / login.microsoftonline.com all OK; `EAI_AGAIN` count in logs dropped to 0.
+- **Remaining REAL failures (not DNS, pre-existing):** #14 OpenClaw Gateway (port), #77 openclaw keyword (ECONNREFUSED <internal-ip:18789>), #15 Aspendora Agent API (ECONNREFUSED <internal-ip:8100>), #24 VM 301 Health (503), #75 defiant-editor keyword mismatch, #84/#85 newpbx SIP-TLS/SSH ports. Worth separate follow-up.
+- **Host:** VM 300, <internal-ip> via `ssh -J pve-dal-01`.
+
+### Monitor cleanup + investigation (2026-07-01 ~13:51 CDT)
+- **Backed up DB first:** `kuma-predelete-20260701-135057.dump` (pg_dump -Fc) in /opt/services/uptime-kuma on VM 300.
+- **Deleted 6 monitors** (all monitor FKs are ON DELETE CASCADE, clean removal): #14 OpenClaw Gateway, #77 openclaw·keyword, #83 newpbx·HTTP, #84 newpbx·SIP-TLS, #85 newpbx·SSH, #15 Aspendora Agent API. Restarted uptime-kuma so in-memory beat loops match DB. Active monitors: 71.
+- **Investigated #24 VM 301 - Health (503):** REAL. Endpoint http://<internal-ip:9100>/health returns healthy:false — ram_pct 94, cpu_pct 179, load_1m 7.19, disk_pct 84, 87 containers. VM 301 (<internal-ip>) is genuinely overloaded; the monitor is correct. Needs capacity remediation, not a monitor change.
+- **Investigated #75 defiant-editor·keyword:** Not an outage. Site redirects to login.microsoftonline.com (Entra auth) → returns "Sign in to your account". Keyword "Defiant Markdown Editor" lives behind auth so an unauthenticated probe never sees it. Plain HTTP monitor #31 stays UP (200 on login page). Fix: repoint keyword to an unauthenticated endpoint or drop the keyword check.
+
+- **Dropped #75 defiant-editor·keyword** (2026-07-01 13:53) per user — kept #31 plain HTTP check. Active monitors: 70.
+
+- **Dropped #8 3ESL Internet (UniFi Webhook)** (2026-07-01) — dead push feed since 2026-03-24; ping #5/#6 + UniFi #7 still cover the site.
+
+### Pulse: remove all mock data, wire real /api/v1 (2026-07-01, in progress)
+- **Sidebar:** badges now live — Incidents = real active-incident count (hidden when 0, was hardcoded "2"), Monitors = real total, Status Pages = real count. Footer shows real signed-in user (new `getUser()` JWT decode in auth.ts); dropped fake "on-call · 4h left". Pinned monitors from useFleet.
+- **New data:** `useActivity` hook (activity feed from real important heartbeats); `useFleet` now also derives a real 24h latency `heatmap` + `healthSpark`/`latencySpark` from the beats it already loads; `Monitor` carries real `tags[]`.
+- **Overview:** real sparklines; service grid grouped by real Kuma tags (Ungrouped bucket) — removed fake "12 services / PRODUCTION / 8 services·32 monitors"; on-call KPI → honest "Rotation not configured"; LatencyHeatmap + ActivityFeed now fed real data (with loading/empty states); ActiveIncidentBanner driven by the real active incident + matching monitor (was fully fabricated "service-log HTTP 500 / Lacy→Riley").
+- **IncidentTriage:** banner + expanded card de-mocked — removed hardcoded asp.net/prod tags, "Escalate to Riley", "escalates in 14m"; tags/severity now from real incident.
+- **Team page:** rewritten to honest empty states (real signed-in user; on-call + roster explained as not-in-Kuma) — removed fake Riley/Morgan/Jordan/Avery rotation + roster.
+- **fixtures.ts:** deleted dead mock arrays (activity, heatmap, activeIncidents, resolvedIncidents, fleetStats.oncall). Kept shared type contracts + small dev-only fallbacks (gated behind import.meta.env.DEV; never render in prod).
+- **Already-honest (left as-is):** MonitorDetail cert/DNS card (all "—" placeholders + disclosure), Integrations concept cards (labeled note). Notifications/Settings/Maintenance/MonitorsList/StatusPages already read real endpoints.
+- **Verified:** `tsc -b` clean; `vite build` clean (393 KB / 108 KB gzip). NOT yet deployed.
+- **Known follow-up:** Sidebar mounts useFleet/useIncidents once (persistent layout) but Overview re-fetches the same — a shared data cache/provider would remove the duplicate fetches. Non-blocking.

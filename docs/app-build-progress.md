@@ -39,3 +39,10 @@
 ## PHASE COMPLETE — awaiting approval to proceed.
 
 Next: Visit https://uptime.aspendora.com to complete initial setup, then test OIDC login flow at https://uptime.aspendora.com/auth/oidc/login
+
+## Phase: Remove all mock data from Pulse UI (2026-07-01)
+**Goal:** Every Pulse screen shows real Kuma data; no fixtures render in production.
+**Decisions:** no-backend UI (on-call/team/escalation) → honest empty states; Overview service grouping → group by real Kuma tags (Ungrouped bucket for untagged).
+**Status:** in progress — see docs/claude-runlog.md for step detail.
+
+**Result (2026-07-01):** DEPLOYED to production. tsc + vite build clean; image rebuilt on VM 300; container recreated healthy; new bundle index-Lfkxdkh2.js live at /v2; DNS fix intact. Every Pulse page now reads real /api/v1 data — remaining non-live UI (on-call/Team, MonitorDetail cert card, Integrations concept cards) shows honest empty states, not fabricated data.

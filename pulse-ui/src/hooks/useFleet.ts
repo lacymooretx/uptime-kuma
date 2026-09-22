@@ -8,7 +8,7 @@ import {
   type ApiMonitor,
   type ApiBeat,
 } from "../lib/api";
-import type { Monitor, Status, BeatStatus } from "../data/fixtures";
+import type { Monitor, Status, BeatStatus, HeatRow } from "../data/fixtures";
 
 export type FleetData = {
   monitors: Monitor[];
@@ -19,6 +19,9 @@ export type FleetData = {
   total: number;
   p95: number;
   oldestDownSeconds: number | null;
+  heatmap: HeatRow[];
+  healthSpark: number[];
+  latencySpark: number[];
 };
 
 export type FleetState =
@@ -126,7 +129,59 @@ function adapt(api: ApiMonitor, beats: ApiBeat[]): Monitor {
     latencyMs: avgPing(beats),
     url: api.url || (api.hostname ? `${api.hostname}${api.port ? ":" + api.port : ""}` : undefined),
     beats: sampleBeats(beats, beatStripLength),
+    tags: api.tags.map((t) => t.name),
   };
+}
+
+// Latency heatmap over the last 24h: 5 latency buckets × 24 hourly columns.
+// Cell intensity (0-1) = share of that hour's beats whose ping fell in the
+// bucket's band. Built from the raw beats useFleet already loaded — no extra
+// fetch. Empty when there are no beats.
+const HEAT_BANDS: { label: string; min: number; max: number }[] = [
+  { label: "1s+", min: 1000, max: Infinity },
+  { label: "500ms", min: 500, max: 1000 },
+  { label: "250ms", min: 250, max: 500 },
+  { label: "100ms", min: 100, max: 250 },
+  { label: "50ms", min: 0, max: 100 },
+];
+
+function buildHeatmap(allBeats: ApiBeat[]): HeatRow[] {
+  const now = Date.now();
+  const cols = 24;
+  // hourBuckets[h] = array of pings for that hour column (0 = 23h ago … 23 = now)
+  const hourPings: number[][] = Array.from({ length: cols }, () => []);
+  for (const b of allBeats) {
+    const ping = Number(b.ping);
+    if (!Number.isFinite(ping) || ping <= 0) continue;
+    const ageHours = (now - new Date(b.time).getTime()) / 3_600_000;
+    if (ageHours < 0 || ageHours >= cols) continue;
+    const col = cols - 1 - Math.floor(ageHours);
+    hourPings[col].push(ping);
+  }
+  return HEAT_BANDS.map((band) => ({
+    label: band.label,
+    values: hourPings.map((pings) => {
+      if (pings.length === 0) return 0;
+      const inBand = pings.filter((p) => p >= band.min && p < band.max).length;
+      return Math.round((inBand / pings.length) * 100) / 100;
+    }),
+  }));
+}
+
+// Downsample a time-ordered series into `n` averaged buckets, normalized 0-1
+// against the series max — used for the KPI sparklines.
+function sparkline(values: number[], n = 17): number[] {
+  if (values.length === 0) return Array(n).fill(0);
+  const max = Math.max(...values, 1);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const lo = Math.floor((i * values.length) / n);
+    const hi = Math.max(lo + 1, Math.floor(((i + 1) * values.length) / n));
+    const slice = values.slice(lo, hi);
+    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
+    out.push(Math.round((avg / max) * 100) / 100);
+  }
+  return out;
 }
 
 function pickFleetSubset(api: ApiMonitor[], n: number): ApiMonitor[] {
@@ -170,11 +225,23 @@ export function useFleet(): FleetState {
           : Math.round(
               (monitors.reduce((s, m) => s + m.uptime30d, 0) / monitors.length) * 100,
             ) / 100;
-        const allRecentPings = beatsPerMonitor
-          .flat()
+        const allBeats = beatsPerMonitor.flat();
+        const allRecentPings = allBeats
           .map((b) => Number(b.ping))
           .filter((p) => Number.isFinite(p) && p > 0);
         const fleetP95 = p95(allRecentPings);
+
+        // Time-ordered beats for the sparklines (fleet-wide).
+        const ordered = [...allBeats].sort(
+          (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+        );
+        const latencySpark = sparkline(
+          ordered.map((b) => Number(b.ping)).filter((p) => Number.isFinite(p) && p > 0),
+        );
+        // Health spark = rolling up-rate across the ordered beats.
+        const healthSpark = sparkline(
+          ordered.map((b) => (b.status === 1 || b.status === 3 ? 1 : 0)),
+        );
 
         setState({
           kind: "ready",
@@ -187,6 +254,9 @@ export function useFleet(): FleetState {
             total,
             p95: fleetP95,
             oldestDownSeconds: null,
+            heatmap: buildHeatmap(allBeats),
+            healthSpark,
+            latencySpark,
           },
         });
       } catch (e) {

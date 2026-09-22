@@ -24,6 +24,35 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+export type PulseUser = { username: string; initials: string };
+
+// Decode the signed-in user from the JWT payload (issued by server/auth.js,
+// which sets `username`). Purely a display convenience — the server still
+// verifies the token on every API call. Returns null if there's no valid token.
+export function getUser(): PulseUser | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const json = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    ) as { username?: string };
+    const username = json.username;
+    if (!username) return null;
+    const initials = username
+      .replace(/[^a-zA-Z0-9 ._@-]/g, "")
+      .split(/[.\s_@-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]!.toUpperCase())
+      .join("") || username.slice(0, 2).toUpperCase();
+    return { username, initials };
+  } catch {
+    return null;
+  }
+}
+
 export function loginUrl(returnTo: string = window.location.pathname): string {
   // Sends the user through the existing OIDC flow on the same origin. The
   // server's allowlist (oidc-router.js) decides what `return` paths it honors.

@@ -15,7 +15,10 @@ import {
   Pin,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
-import { monitors } from "../data/fixtures";
+import { useFleet } from "../hooks/useFleet";
+import { useIncidents } from "../hooks/useIncidents";
+import { useStatusPages } from "../hooks/useStatusPages";
+import { getUser } from "../lib/auth";
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -26,13 +29,15 @@ type NavItem = {
   badge?: { text: string; tone?: "destructive" | "default" };
 };
 
-const workspaceNav: NavItem[] = [
-  { to: "/overview", label: "Overview", icon: LayoutDashboard },
-  { to: "/monitors", label: "Monitors", icon: Activity, badge: { text: "47" } },
-  { to: "/incidents", label: "Incidents", icon: Siren, badge: { text: "2", tone: "destructive" } },
-  { to: "/status-pages", label: "Status Pages", icon: Globe, badge: { text: "3" } },
-  { to: "/maintenance", label: "Maintenance", icon: Wrench },
-];
+// Only show a badge when the count is meaningful (>0). The Incidents badge is
+// destructive-toned so it stands out when something is genuinely active, and
+// disappears entirely when the fleet is all clear.
+function countBadge(
+  n: number,
+  tone?: "destructive" | "default",
+): NavItem["badge"] {
+  return n > 0 ? { text: String(n), tone } : undefined;
+}
 
 const setupNav: NavItem[] = [
   { to: "/notifications", label: "Notifications", icon: Bell },
@@ -89,8 +94,28 @@ function Section({ label }: { label: string }) {
 
 export default function Sidebar() {
   const onMonitorDetail = useMatch("/monitors/:slug");
-  const showPinned = !!onMonitorDetail;
-  const pinnedMonitors = monitors.slice(0, 3);
+  const fleet = useFleet();
+  const incidents = useIncidents();
+  const statusPages = useStatusPages();
+
+  const monitorCount = fleet.kind === "ready" ? fleet.data.total : 0;
+  const activeIncidents =
+    incidents.kind === "ready" ? incidents.data.active.length : 0;
+  const statusPageCount =
+    statusPages.kind === "ready" ? statusPages.list.length : 0;
+  const user = getUser();
+
+  const workspaceNav: NavItem[] = [
+    { to: "/overview", label: "Overview", icon: LayoutDashboard },
+    { to: "/monitors", label: "Monitors", icon: Activity, badge: countBadge(monitorCount) },
+    { to: "/incidents", label: "Incidents", icon: Siren, badge: countBadge(activeIncidents, "destructive") },
+    { to: "/status-pages", label: "Status Pages", icon: Globe, badge: countBadge(statusPageCount) },
+    { to: "/maintenance", label: "Maintenance", icon: Wrench },
+  ];
+
+  const pinnedMonitors =
+    fleet.kind === "ready" ? fleet.data.monitors.slice(0, 3) : [];
+  const showPinned = !!onMonitorDetail && pinnedMonitors.length > 0;
 
   return (
     <aside className="w-[248px] shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-fg flex flex-col">
@@ -160,7 +185,7 @@ export default function Sidebar() {
                         : "text-sidebar-muted",
                   ].join(" ")}
                 >
-                  {m.status === "down" ? "7m" : `${m.latencyMs}ms`}
+                  {m.status === "down" ? "down" : `${m.latencyMs}ms`}
                 </span>
               </NavLink>
             ))}
@@ -175,11 +200,13 @@ export default function Sidebar() {
 
       <div className="flex items-center gap-2.5 border-t border-sidebar-border px-4 py-3">
         <div className="flex size-8 items-center justify-center rounded-full bg-primary font-mono text-[11px] font-semibold text-primary-fg">
-          LM
+          {user?.initials ?? "?"}
         </div>
         <div className="flex-1 min-w-0 leading-tight">
-          <div className="truncate text-[13px] font-medium text-sidebar-accent-fg">Lacy Moore</div>
-          <div className="truncate font-mono text-[11px] text-success-fg">on-call · 4h left</div>
+          <div className="truncate text-[13px] font-medium text-sidebar-accent-fg">
+            {user?.username ?? "Not signed in"}
+          </div>
+          <div className="truncate font-mono text-[11px] text-sidebar-muted">signed in</div>
         </div>
         <ChevronsUpDown className="size-4 text-sidebar-muted" />
         <Pin className="hidden size-3 text-sidebar-muted" />
