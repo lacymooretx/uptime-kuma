@@ -427,19 +427,35 @@ class Database {
             // 3) R.store() on new beans does knex(type).insert(obj) and sets
             //    bean.id = result[0]. PostgreSQL returns [] from plain insert()
             //    (no RETURNING clause), so bean.id becomes undefined.
-            //    Fix: after insert, fetch the ID via currval().
+            //    Fix: inserts use INSERT ... RETURNING id, so the id comes back on the same
+            //    connection as the insert. (The earlier fix ran a separate currval() query, which
+            //    the pool could hand to a different connection: "currval of sequence ... is not yet
+            //    defined in this session", and the monitor's beat loop errored and restarted.)
+            //    Mirrors redbean-node 0.3.x storeCore() for the insert path; updates are unchanged.
             const origStoreCore = R.storeCore.bind(R);
             R.storeCore = async function (bean, changedFieldsOnly = true) {
-                const isInsert = !bean.id;
-                const result = await origStoreCore(bean, changedFieldsOnly);
-                if (isInsert && !bean.id) {
-                    const row = await R.getRow(
-                        "SELECT currval(pg_get_serial_sequence(?, 'id')) as id",
-                        [bean.getType()]
-                    );
-                    if (row) {
-                        bean.id = parseInt(row.id, 10);
-                    }
+                if (bean.id) {
+                    return origStoreCore(bean, changedFieldsOnly);
+                }
+                await bean.storeTypeBeanList();
+                if (typeof bean.onUpdate === "function") {
+                    bean.onUpdate();
+                }
+                if (!R._freeze) {
+                    await R.updateTableSchema(bean);
+                }
+                const obj = bean.export(false);
+                delete obj.id;
+                const queryPromise = R.knex(bean.getType()).insert(obj).returning("id");
+                R.queryLog(queryPromise);
+                const rows = await queryPromise;
+                const first = rows[0];
+                bean.id = parseInt(first !== null && typeof first === "object" ? first.id : first, 10);
+                await bean.storeSharedList();
+                await bean.storeOwnList();
+                bean.beanMeta.old = {};
+                if (typeof bean.onAfterUpdate === "function") {
+                    bean.onAfterUpdate();
                 }
                 return bean.id;
             };

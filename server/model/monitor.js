@@ -735,7 +735,11 @@ class Monitor extends BeanModel {
                     const bufferTime = 1000; // 1s buffer to accommodate clock differences
 
                     if (previousBeat) {
-                        const msSinceLastBeat = dayjs.utc().valueOf() - dayjs.utc(previousBeat.time).valueOf();
+                        // FIX 2026-07-08 (Aspendora): previousBeat.time is RedBean-imported as a string in the
+                        // process-local timezone, but was parsed here with dayjs.utc(), injecting a fixed
+                        // TZ-offset skew (~5h) that made ALL push monitors false-alarm on the first check.
+                        // Parse it in local time to match how RedBean formatted it.
+                        const msSinceLastBeat = dayjs.utc().valueOf() - dayjs(previousBeat.time).valueOf();
 
                         log.debug("monitor", `[${this.name}] msSinceLastBeat = ${msSinceLastBeat}`);
 
