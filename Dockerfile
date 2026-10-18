@@ -8,6 +8,20 @@ RUN npm ci --no-audit
 COPY pulse-ui/ ./
 RUN npm run build
 
+# ---- Classic UI build stage ----
+# Builds the Vue frontend (dist/) from source. dist/ is gitignored and used to be built on a laptop and copied
+# into the build context by hand, so a clean clone could not produce a working image.
+FROM node:20-slim AS ui-builder
+WORKDIR /ui
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --legacy-peer-deps
+COPY index.html ./
+COPY public/ ./public/
+COPY src/ ./src/
+COPY config/ ./config/
+COPY extra/ ./extra/
+RUN npm run build
+
 # ---- Final image ----
 FROM node:20-slim
 
@@ -29,8 +43,8 @@ RUN npm ci --omit dev --no-audit --legacy-peer-deps
 # Install additional packages for OIDC and cookie parsing
 RUN npm install openid-client@5 cookie-parser --no-audit --legacy-peer-deps
 
-# Copy pre-built frontend (built locally with our Login.vue changes)
-COPY dist/ ./dist/
+# Classic UI (built from source in the ui-builder stage above)
+COPY --from=ui-builder /ui/dist ./dist/
 
 # Copy server code (includes our REST API additions) and supporting files
 COPY server/ ./server/
