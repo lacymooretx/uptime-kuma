@@ -1,12 +1,16 @@
-// useFleet: load monitors + their last-24h beats, derive Pulse's per-monitor view
-// model (status / uptime% / avg latency / sampled beat strip) and fleet rollups.
+// useFleet: load monitors + the fleet-wide summary (latest beats + 24h uptime for
+// every monitor), derive Pulse's per-monitor view model (status / uptime% / avg
+// latency / beat strip) and fleet rollups. Raw 24h beats are only pulled for a
+// capped sample, to feed the latency heatmap and sparklines.
 
 import { useEffect, useState } from "react";
 import {
   fetchMonitors,
   fetchBeats,
+  fetchMonitorSummary,
   type ApiMonitor,
   type ApiBeat,
+  type ApiMonitorSummary,
 } from "../lib/api";
 import type { Monitor, Status, BeatStatus, HeatRow } from "../data/fixtures";
 
@@ -115,7 +119,8 @@ function p95(values: number[]): number {
   return Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]);
 }
 
-function adapt(api: ApiMonitor, beats: ApiBeat[]): Monitor {
+function adapt(api: ApiMonitor, summary: ApiMonitorSummary | undefined): Monitor {
+  const beats = summary?.beats ?? [];
   const status = rollupStatus(beats);
   return {
     slug: String(api.id),
@@ -125,7 +130,9 @@ function adapt(api: ApiMonitor, beats: ApiBeat[]): Monitor {
     env: envFromTags(api),
     checks: 1,
     status,
-    uptime30d: uptimePercent(beats),
+    uptime30d: summary?.uptime24h != null
+      ? Math.round(summary.uptime24h * 10000) / 100
+      : uptimePercent(beats),
     latencyMs: avgPing(beats),
     url: api.url || (api.hostname ? `${api.hostname}${api.port ? ":" + api.port : ""}` : undefined),
     beats: sampleBeats(beats, beatStripLength),
@@ -184,15 +191,14 @@ function sparkline(values: number[], n = 17): number[] {
   return out;
 }
 
-function pickFleetSubset(api: ApiMonitor[], n: number): ApiMonitor[] {
-  // Skip groups (type==='group'), inactive, and child duplicates. Sort by status
-  // pessimism (downs first) then by name.
-  return api
-    .filter((m) => m.type !== "group" && m.active)
-    .slice(0, n);
+function activeMonitors(api: ApiMonitor[]): ApiMonitor[] {
+  return api.filter((m) => m.type !== "group" && m.active);
 }
 
-const FLEET_LIMIT = 24; // max monitors to fetch beats for on Overview render
+// Max monitors to pull raw 24h beats for. Only the heatmap and sparklines use
+// these — status, counts and per-monitor rows come from the summary, which
+// covers every monitor. (Raw beats for the whole fleet run to megabytes.)
+const HEATMAP_SAMPLE_LIMIT = 24;
 
 export function useFleet(): FleetState {
   const [state, setState] = useState<FleetState>({ kind: "loading" });
@@ -202,19 +208,21 @@ export function useFleet(): FleetState {
     (async () => {
       try {
         const api = await fetchMonitors();
-        const subset = pickFleetSubset(api, FLEET_LIMIT);
-        const beatsPerMonitor = await Promise.all(
-          subset.map(async (m) => {
+        const active = activeMonitors(api);
+        const sample = active.slice(0, HEATMAP_SAMPLE_LIMIT);
+        const [summary, beatsPerMonitor] = await Promise.all([
+          fetchMonitorSummary(beatStripLength),
+          Promise.all(sample.map(async (m) => {
             try {
               return await fetchBeats(m.id, 24);
             } catch {
               return [] as ApiBeat[];
             }
-          }),
-        );
+          })),
+        ]);
         if (cancelled) return;
 
-        const monitors: Monitor[] = subset.map((m, i) => adapt(m, beatsPerMonitor[i]));
+        const monitors: Monitor[] = active.map((m) => adapt(m, summary[m.id]));
 
         const total = api.filter((m) => m.type !== "group").length;
         const up = monitors.filter((m) => m.status === "up").length;

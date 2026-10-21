@@ -56,6 +56,20 @@ export async function fetchBeats(id: number, hours = 24): Promise<ApiBeat[]> {
   return env.data;
 }
 
+/** Per-monitor entry from /api/v1/monitors/summary. uptime24h is a 0-1 ratio. */
+export interface ApiMonitorSummary {
+  beats: ApiBeat[]; // most recent N, oldest first
+  uptime24h: number | null;
+  avgPing24h: number | null;
+}
+
+export async function fetchMonitorSummary(count = 30): Promise<Record<string, ApiMonitorSummary>> {
+  const env = await apiFetch<Envelope<Record<string, ApiMonitorSummary>>>(
+    `/api/v1/monitors/summary?count=${count}`,
+  );
+  return env.data;
+}
+
 export interface ChartPoint {
   up: number;
   down: number;

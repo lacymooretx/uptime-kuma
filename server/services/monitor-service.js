@@ -419,6 +419,49 @@ class MonitorService {
     }
 
     /**
+     * Fleet-wide status summary: for every monitor the user owns, its most
+     * recent heartbeats plus 24h uptime/avg ping from the in-memory
+     * UptimeCalculator. Cheap enough to call for the whole fleet on each page
+     * load, unlike pulling 24h of raw beats per monitor.
+     * @param {number} userID User ID
+     * @param {number} count Recent heartbeats to return per monitor
+     * @returns {Promise<object>} { [monitorID]: { beats, uptime24h, avgPing24h } }
+     */
+    static async getSummary(userID, count = 30) {
+        const limit = Math.min(Math.max(parseInt(count) || 30, 1), 100);
+        const rows = await R.getAll("SELECT id FROM monitor WHERE user_id = ? ", [userID]);
+        const result = {};
+
+        await Promise.all(rows.map(async ({ id }) => {
+            const beats = await R.getAll(`
+                SELECT *
+                FROM heartbeat
+                WHERE monitor_id = ?
+                ORDER BY time DESC
+                LIMIT ${limit}
+            `, [id]);
+
+            let uptime24h = null;
+            let avgPing24h = null;
+            try {
+                const day = (await UptimeCalculator.getUptimeCalculator(id)).get24Hour();
+                uptime24h = day.uptime;
+                avgPing24h = day.avgPing;
+            } catch (e) {
+                log.debug("monitor", `No uptime data for monitor ${id}: ${e.message}`);
+            }
+
+            result[id] = {
+                beats: beats.reverse(),
+                uptime24h,
+                avgPing24h,
+            };
+        }));
+
+        return result;
+    }
+
+    /**
      * Get chart data for a monitor
      * @param {number} monitorID Monitor ID
      * @param {number} period Period in hours

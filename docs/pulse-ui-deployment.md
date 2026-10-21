@@ -73,25 +73,34 @@ cd ..
 npm run start-server    # or whatever your prod start cmd is
 ```
 
-For production deployment to the Vultr Proxmox Docker host (VM 300, `10.10.30.174`, reached via `pve-dal-01` jump host):
-1. The Dockerfile has a multi-stage build that compiles `pulse-ui/` inside the image — no need to pre-build locally.
-2. rsync the source tree (server/, src/, pulse-ui/, Dockerfile) to `/opt/services/uptime-kuma/source/` on the Docker host.
-3. `docker compose build && docker compose up -d` from `/opt/services/uptime-kuma/`.
-4. No env-var changes required — OIDC vars in `.env` are reused.
+### Production (since 2026-10-17): `uptime-ord-01`
+
+Production moved off the Atlanta cluster on 2026-10-17. It now runs on **uptime-ord-01** (Vultr Chicago,
+`ssh uptime-ord-01`, Tailscale `100.92.124.57`) in `/opt/services/uptime-kuma/`: containers `uptime-kuma`,
+`uptime-kuma-db` (Postgres 16) and `uptime-kuma-caddy` (TLS; replaces NPM). Public DNS
+`uptime.aspendora.com` → `137.220.60.227`.
+
+> The old VM 300 (`docker-services`, `10.10.30.174`, behind pve-atl-01) still holds a **stopped** copy and a
+> stale NPM proxy entry. Do **not** deploy there. (The `pve-dal-01` SSH alias also resolves to pve-atl-01.)
+
+Deploys are **git tags**: `./source` is a clone of `lacymooretx/uptime-kuma` checked out at a `deploy-*` tag,
+and the Dockerfile builds both UIs. The previous image is kept as `uptime-kuma:rollback`.
 
 ```bash
-# from this repo's root
-rsync -avz --delete \
-  --exclude node_modules --exclude .git --exclude data --exclude pulse-ui/dist \
-  -e 'ssh -J pve-dal-01' \
-  ./ root@10.10.30.174:/opt/services/uptime-kuma/source/
+# 1. local: commit, push, tag
+git push origin master
+git tag deploy-YYYY-MM-DD && git push origin deploy-YYYY-MM-DD
 
-ssh -J pve-dal-01 root@10.10.30.174 '
-  cd /opt/services/uptime-kuma &&
-  docker compose build &&
-  docker compose up -d
+# 2. live host: check out the tag, keep a rollback image, rebuild only the app container
+ssh uptime-ord-01 '
+  cd /opt/services/uptime-kuma/source && git fetch --tags && git checkout deploy-YYYY-MM-DD &&
+  cd .. && docker tag uptime-kuma:latest uptime-kuma:rollback &&
+  docker compose build uptime-kuma && docker compose up -d uptime-kuma
 '
 ```
+
+Rollback: `docker tag uptime-kuma:rollback uptime-kuma:latest && docker compose up -d --no-build uptime-kuma`,
+and check `source` back out at the previous tag.
 
 ## Verification
 

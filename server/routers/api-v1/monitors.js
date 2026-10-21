@@ -10,6 +10,14 @@ router.get("/", asyncHandler(async (req, res) => {
     res.json({ ok: true, data: list });
 }));
 
+// GET /monitors/summary — Latest beats + 24h uptime for every monitor
+// (registered before /:id so "summary" isn't parsed as an ID)
+router.get("/summary", asyncHandler(async (req, res) => {
+    const count = Math.min(Math.max(parseInt(req.query.count) || 30, 1), 100);
+    const data = await MonitorService.getSummary(req.userID, count);
+    res.json({ ok: true, data });
+}));
+
 // GET /monitors/:id — Get single monitor
 router.get("/:id", asyncHandler(async (req, res) => {
     const monitor = await MonitorService.get(parseInt(req.params.id), req.userID);

@@ -224,3 +224,14 @@
 - **Already-honest (left as-is):** MonitorDetail cert/DNS card (all "—" placeholders + disclosure), Integrations concept cards (labeled note). Notifications/Settings/Maintenance/MonitorsList/StatusPages already read real endpoints.
 - **Verified:** `tsc -b` clean; `vite build` clean (393 KB / 108 KB gzip). NOT yet deployed.
 - **Known follow-up:** Sidebar mounts useFleet/useIncidents once (persistent layout) but Overview re-fetches the same — a shared data cache/provider would remove the duplicate fetches. Non-blocking.
+
+### Pulse showed 0 down while classic UI showed a DOWN monitor (2026-10-21 16:25 CDT)
+- **Symptom:** /v2 Overview reported nothing down; classic UI showed a monitor DOWN.
+- **Root cause:** `useFleet` only fetched beats for the first 24 active monitors (`FLEET_LIMIT = 24`, list order) and computed status/up/down counts from that subset. Production has 90 active monitors. The DOWN one — #97 "OPNsense pve-atl-01 - firmware current (dead-mans switch)", push monitor — is #68 in list order, so Pulse never saw it. The same cap also made the Monitors list page and Sidebar show 24 of 90 monitors.
+- **The real alert (#97):** DOWN since at least 08:34 CDT; at 12:17 CDT (17:17 UTC) the push reported "OPNsense 26.7.5, 71MiB to download | 35 pending (35 upgrade)"; latest beat 14:34 CDT (19:34 UTC) "No heartbeat in the time window". pve-atl-01 OPNsense needs firmware updates.
+- **Why not just raise the cap:** 24h raw beats for all 90 monitors measured at 16.7 MB / ~13 s per page load.
+- **Fix:**
+  - Server: new `GET /api/v1/monitors/summary?count=N` (`server/routers/api-v1/monitors.js`, `MonitorService.getSummary` in `server/services/monitor-service.js`) — per monitor: last N beats (`ORDER BY time DESC LIMIT N`, N clamped 1-100) + 24h uptime/avg ping from the in-memory UptimeCalculator. Registered before `/:id`.
+  - Client: `fetchMonitorSummary` in `pulse-ui/src/lib/api.ts`; `useFleet` now builds status, beat strip, uptime and counts for **every** active monitor from the summary. Raw 24h beats still fetched for a 24-monitor sample (`HEATMAP_SAMPLE_LIMIT`) only for heatmap/sparklines.
+- **Verified:** `tsc -b` clean, `vite build` clean, eslint clean (3 pre-existing warnings), route order `/`, `/summary`, `/:id` confirmed.
+- **Next:** deploy to VM 300 per docs/pulse-ui-deployment.md (rebuild image + recreate container), then confirm /v2 shows #97 down.
