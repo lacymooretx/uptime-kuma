@@ -1,7 +1,7 @@
 # ---- Pulse UI build stage ----
 # Builds the new dashboard (pulse-ui/) into pulse-ui/dist so the final
 # image can copy it in without dragging node_modules along.
-FROM node:20-slim AS pulse-builder
+FROM node:22-slim AS pulse-builder
 WORKDIR /pulse
 COPY pulse-ui/package.json pulse-ui/package-lock.json ./
 RUN npm ci --no-audit
@@ -11,7 +11,7 @@ RUN npm run build
 # ---- Classic UI build stage ----
 # Builds the Vue frontend (dist/) from source. dist/ is gitignored and used to be built on a laptop and copied
 # into the build context by hand, so a clean clone could not produce a working image.
-FROM node:20-slim AS ui-builder
+FROM node:22-slim AS ui-builder
 WORKDIR /ui
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --legacy-peer-deps
@@ -23,7 +23,7 @@ COPY extra/ ./extra/
 RUN npm run build
 
 # ---- Final image ----
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 
